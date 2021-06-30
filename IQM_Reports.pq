@@ -463,31 +463,67 @@ TIMEZONE_TABLE = #table( {"value", "label"}, {
 SCHEMA_TABLE = #table({"Name", "Type", "Position", "Description"}, {
     {"campaignId", type text, 0, "Unique system-generated numerical ID assigned to each campaign"},
     {"campaignName", type text, 1, ""},
-    {"startTime", type nullable text, 2, "Campaign start date."},
-    {"endTime", type nullable text, 3, "Campaign end date."},
-    {"campaignTimezone", type text, 4, ""},
-    {"maxBid", type number, 5, "Amount up to which you allow IQM to bid."},
-    {"budgetDay", type number, 6, "Amount up to which you allow IQM to spend on average each day."},
-    {"budgetTotal", type number, 7, "Amount up to which you allow IQM to spend."},
-    {"audioVideoViewed", type number, 8, ""},
-    {"startCount", type number, 9, "Number of video ads that start to play."},
-    {"firstCount", type number, 10, "Number of video ads that play through 25% of their duration."},
-    {"midCount", type number, 11, "Number of video ads that play through 50% of their duration."},
-    {"thirdCount", type number, 12, "Number of video ads that play through 75% of their duration."},
-    {"completeCount", type number, 13, "Number of video ads that play through to completion."},
-    {"impressions", type number, 14, "Number of times ad is displayed on someone's screen."},
-    {"clicks", type number, 15, "Number of times someone clicks your ad."},
-    {"mediaSpent", type number, 16, "Amount spent to win impressions."},
-    {"spent", type number, 17, "Sum of the Media Spent and Data Spent."},
-    {"dataCost", type number, 18, "Amount spent to serve impressions to audiences you matched or purchased."},
-    {"winRate", type number, 19, "Percentage of impressions won per bids made."},
-    {"CTR", type number, 20, "Click-through rate is the percentage of clicks received per impressions served."},
-    {"VCR", type number, 21, "Video completion rate is the percentage of video ads that play through to completion."},
-    {"eCPC", type number, 22, "Effective cost per click is the amount spent divided by the number of clicks."},
-    {"eCPM", type number, 23, "Effective cost per mile is the amount you pay per one thousand impressions."},
-    {"eCPCV", type number, 24, "Cost per completed view is the amount spent divided by the number of video ads that play through to completion."}
+    {"startTime", type nullable date, 2, "Campaign start date."},
+    {"endTime", type nullable date, 3, "Campaign end date."},
+    {"maxBid", type number, 4, "Amount up to which you allow IQM to bid."},
+    {"budgetDay", type number, 5, "Amount up to which you allow IQM to spend on average each day."},
+    {"budgetTotal", type number, 6, "Amount up to which you allow IQM to spend."},
+    {"audioVideoViewed", type duration, 7, "Total duration of audio/video ads viewed."},
+    {"startCount", type number, 8, "Number of video ads that start to play."},
+    {"firstCount", type number, 9, "Number of video ads that play through 25% of their duration."},
+    {"midCount", type number, 10, "Number of video ads that play through 50% of their duration."},
+    {"thirdCount", type number, 11, "Number of video ads that play through 75% of their duration."},
+    {"completeCount", type number, 12, "Number of video ads that play through to completion."},
+    {"impressions", type number, 13, "Number of times ad is displayed on someone's screen."},
+    {"clicks", type number, 14, "Number of times someone clicks your ad."},
+    {"mediaSpent", type number, 15, "Amount spent to win impressions."},
+    {"spent", type number, 16, "Sum of the Media Spent and Data Spent."},
+    {"dataCost", type number, 17, "Amount spent to serve impressions to audiences you matched or purchased."},
+    {"winRate", type number, 18, "Percentage of impressions won per bids made."},
+    {"CTR", type number, 19, "Click-through rate is the percentage of clicks received per impressions served."},
+    {"VCR", type number, 20, "Video completion rate is the percentage of video ads that play through to completion."},
+    {"eCPC", type number, 21, "Effective cost per click is the amount spent divided by the number of clicks."},
+    {"eCPM", type number, 22, "Effective cost per mile is the amount you pay per one thousand impressions."},
+    {"eCPCV", type number, 23, "Cost per completed view is the amount spent divided by the number of video ads that play through to completion."}
 });
 
+
+
+/*
+	COLUMN_NAMES_MAP_API_TO_UI maps the property names for the data returned in the response from the API /serving/result endpoint
+	to "pretty" user-firendly names that will be used as column names and displayed to the user.
+
+	For example, the API returns objects with a property of "maxBid". The data associated with this property will be placed in a column
+	named "Max Bid ($)".
+*/
+COLUMN_NAMES_MAP_API_TO_UI = [
+	campaignId = "Campaign ID",
+	campaignName = "Campaign Name",
+	date = "Date",
+	startTime = "Start Date",
+	endTime = "End Date",
+	campaignTimezone = "Campaign Timezone",
+	maxBid = "Max Bid ($)",
+	budgetDay = "Daily Budget ($)",
+	budgetTotal = "Total Budget ($)",
+	audioVideoViewed = "Duration Audio Video Viewed",
+	startCount = "Video Start",
+	firstCount = "Video 25%",
+	midCount = "Video 50%",
+	thirdCount = "Video 75%",
+	completeCount = "Video 100%",
+	impressions = "Impressions",
+	clicks = "Clicks",
+	mediaSpent = "Media Spent",
+	spent = "Total Spent ($)",
+	dataCost = "Data Cost ($)",
+	winRate = "Win Rate (%)",
+	CTR = "CTR (%)",
+	VCR = "VCR (%)",
+	eCPC = "eCPC ($)",
+	eCPM = "eCPM ($)",
+	eCPCV = "CPCV ($)"
+];
 
 
 
@@ -538,7 +574,6 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
             #"Content-Type" = "application/json",
             #"Accept" = "application/json"
             //M engine automatically adds the Authorization header.
-            //#"Authorization" = "Bearer " & Extension.CurrentCredential()[access_token]     //get access_token from current credentials set
         ],
 
 		//Send HTTP request to API endpoint
@@ -552,12 +587,14 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
 			//If "data" list is not empty, create a table from the objects within the list and return that table.
 			//Include metadata: "pageNum" tells which page number this current page/table of results corresponds to. 
 			//pageNum is equal to the page_number in the request body and is used in ContentsFunction (in the nested function getNextPage) to calculate the next page's number.
-            else    
-                Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum]   
+            else 
+				Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum] 
     in
         responseTable;
 
-	
+
+
+
 /*
 	ContentsFunction generates the full table of report data from /serving/result that will be presented to the Power BI user.
 	ContentsFunction repeatedly calls getServingResultsPage to gather paginated data from /serving/result until no more data is returned;
@@ -585,9 +622,7 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
 			else
 				Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
 
-
 		//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
-		
         startDateDuration = startDate - UNIX_EPOCH,			
         endDateDuration = endDate - UNIX_EPOCH,
         startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
@@ -613,43 +648,29 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
             in
                 nextPage,
 
-		//Get full table of results, then change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
+		/*
+			The nested transformColumns function applies the required processing to the values in certain columns of the table returned from
+			Table.GenerateByPage. It converts the audioVideoViewed column to duration values, and startTime and endTime columns to date values.
+		*/
+		transformColumns = (inputTable as table) as table =>
+			let
+				withAudioVideoAsDuration = Table.TransformColumns(inputTable, {"audioVideoViewed", (value) => #duration(0, 0, 0, value)}),
+				withStartTimeAsDate = Table.TransformColumns(withAudioVideoAsDuration, {"startTime", TimestampToDate}),
+				withEndTimeAsDate = Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate})
+			in 
+				withEndTimeAsDate,
+
+		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
         resultTable = Table.GenerateByPage(getNextPage),
-        resultTableSchemaEnforced = SchemaTransformTable(resultTable, SCHEMA_TABLE, EnforceSchema.Strict),
-		columnNamesMap = [
-			campaignId = "Campaign ID",
-			campaignName = "Campaign Name",
-			date = "Date",
-			startTime = "Start Date",
-			endTime = "End Date",
-			campaignTimezone = "Campaign Timezone",
-			maxBid = "Max Bid ($)",
-			budgetDay = "Daily Budget ($)",
-			budgetTotal = "Total Budget ($)",
-			audioVideoViewed = "Minutes AudioVideo Viewed",
-			startCount = "Video Start",
-			firstCount = "Video 25%",
-			midCount = "Video 50%",
-			thirdCount = "Video 75%",
-			completeCount = "Video 100%",
-			impressions = "Impressions",
-			clicks = "Clicks",
-			mediaSpent = "Media Spent",
-			spent = "Total Spent ($)",
-			dataCost = "Data Cost ($)",
-			winRate = "Win Rate (%)",
-			CTR = "CTR (%)",
-			VCR = "VCR (%)",
-			eCPC = "eCPC ($)",
-			eCPM = "eCPM ($)",
-			eCPCV = "CPCV ($)"
-		],
-		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(columnNamesMap, name))
+		resultTableValuesConverted = transformColumns(resultTable),
+        resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE, EnforceSchema.Strict),
+		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name))
     in
         resultTableWithColumnsNamed;
 
 
-//Define the type for the IQM_Reports.Contents function, including "documentation"/helptext that will be shown to the user
+
+//Define the type for the IQM_Reports.Contents function, including the "documentation"/helptext that will be shown to the user
 ContentsFunctionType = type function (
 	timezoneLabel as (type text meta [
 		Documentation.FieldCaption = "Timezone",
@@ -832,6 +853,17 @@ GetToken = (code, grantType, requestUrl) =>
 
 
 
+/*
+	TimestampToDate converts a Unix timestamp (seconds) to a value of type "date".
+	The date value is the local date with respect to the user's system.
+*/
+TimestampToDate = (timestamp as nullable number) as nullable date =>
+	let
+		asDuration = if (timestamp <> null) then #duration(0, 0, 0, timestamp) else null,
+		asDatetimezone = if (timestamp <> null) then UNIX_EPOCH + asDuration else null,
+		asDate = if (timestamp <> null) then Date.From(asDatetimezone) else null
+	in
+		asDate;
 
 
 
@@ -934,4 +966,31 @@ SchemaTransformTable = (table as table, schema as table, optional enforceSchema 
         withType = if (_enforceSchema = EnforceSchema.Strict) then Value.ReplaceType(enforcedTypes, SchemaToTableType(schema)) else enforcedTypes
     in
         withType;
+
+
+/*
+	Table.ToNavigationTable converts a regular table to a navigation table.
+*/
+Table.ToNavigationTable = (
+    table as table,
+    keyColumns as list,
+    nameColumn as text,
+    dataColumn as text,
+    itemKindColumn as text,
+    itemNameColumn as text,
+    isLeafColumn as text
+) as table =>
+    let
+        tableType = Value.Type(table),
+        newTableType = Type.AddTableKey(tableType, keyColumns, true) meta 
+        [
+            NavigationTable.NameColumn = nameColumn, 
+            NavigationTable.DataColumn = dataColumn,
+            NavigationTable.ItemKindColumn = itemKindColumn, 
+            Preview.DelayColumn = itemNameColumn, 
+            NavigationTable.IsLeafColumn = isLeafColumn
+        ],
+        navigationTable = Value.ReplaceType(table, newTableType)
+    in
+        navigationTable;
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
