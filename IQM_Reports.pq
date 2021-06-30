@@ -514,7 +514,7 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	completeCount = "Video 100%",
 	impressions = "Impressions",
 	clicks = "Clicks",
-	mediaSpent = "Media Spent",
+	mediaSpent = "Media Spent ($)",
 	spent = "Total Spent ($)",
 	dataCost = "Data Cost ($)",
 	winRate = "Win Rate (%)",
@@ -551,7 +551,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
                 endDate = endDateTimestamp
             ],
             timezone = [
-                id = timezoneId
+				id = timezoneId
             ],
             dimension = [
                 filter = [
@@ -664,9 +664,16 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
         resultTable = Table.GenerateByPage(getNextPage),
 		resultTableValuesConverted = transformColumns(resultTable),
         resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE, EnforceSchema.Strict),
-		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name))
-    in
-        resultTableWithColumnsNamed;
+		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name)),
+		
+		//Convert the result table to a navigation table and return the navigation table.
+		navTableFxnParam = #table(
+			{"Name", "Key", "Data", "ItemKind", "ItemName", "IsLeaf"}, {
+			{"AdServingReportAggregated", "AdServingReportAggregated", resultTableWithColumnsNamed, "Table", "Table", true}
+		}),
+		navTable = Table.ToNavigationTable(navTableFxnParam, {"Key"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
+	in
+        navTable;
 
 
 
