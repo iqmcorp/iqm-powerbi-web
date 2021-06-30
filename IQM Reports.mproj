@@ -50,30 +50,30 @@
     <Content Include="IQM_Reports_120.png">
       <SubType>Content</SubType>
     </Content>
-    <Content Include="IQM_Reports_16.png">
+    <Compile Include="IQM_Reports_16.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_20.png">
+    </Compile>
+    <Compile Include="IQM_Reports_20.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_24.png">
+    </Compile>
+    <Compile Include="IQM_Reports_24.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_32.png">
+    </Compile>
+    <Compile Include="IQM_Reports_32.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_40.png">
+    </Compile>
+    <Compile Include="IQM_Reports_40.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_48.png">
+    </Compile>
+    <Compile Include="IQM_Reports_48.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_64.png">
+    </Compile>
+    <Compile Include="IQM_Reports_64.png">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="IQM_Reports_80.png">
+    </Compile>
+    <Compile Include="IQM_Reports_80.png">
       <SubType>Content</SubType>
-    </Content>
+    </Compile>
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <UsingTask TaskName="BuildExtension" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">

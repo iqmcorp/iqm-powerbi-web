@@ -456,42 +456,380 @@ TIMEZONE_TABLE = #table( {"value", "label"}, {
 });
 
 
-//timezone type: a "text" type whose allowed values are the "label" strings from the TIMEZONE_TABLE (i.e. "US/Pacific", "Europe/Amsterdam"...etc)
-//Used to create the timezoneLabel dropdown for the user to enter their campaign timezone.
-timezone = type text meta [Documentation.AllowedValues = Table.Column(TIMEZONE_TABLE, "label")];
-
 
 //The SCHEMA_TABLE table is used as a "schema" for the table that the API results from /serving/result will be placed in. 
 //It defines the order of columns and the M data type of each column. 
 //The ad-serving data from the /serving/result API endpoint will be placed into a table formatted according to the SCHEMA_TABLE.
-SCHEMA_TABLE = #table({"Name", "Type", "Position"}, {
-    {"campaignId", type text, 0},
-    {"campaignName", type text, 1},
-    {"date", type nullable date, 2},
-    {"startTime", type nullable text, 3},
-    {"endTime", type nullable text, 4},
-    {"campaignTimezone", type text, 5},
-    {"maxBid", type number, 6},
-    {"budgetDay", type number, 7},
-    {"budgetTotal", type number, 8},
-    {"audioVideoViewed", type number, 9},
-    {"startCount", type number, 10},
-    {"firstCount", type number, 11},
-    {"midCount", type number, 12},
-    {"thirdCount", type number, 13},
-    {"completeCount", type number, 14},
-    {"impressions", type number, 15},
-    {"clicks", type number, 16},
-    {"mediaSpent", type number, 17},
-    {"spent", type number, 18},
-    {"dataCost", type number, 19},
-    {"winRate", type number, 20},
-    {"CTR", type number, 21},
-    {"VCR", type number, 22},
-    {"eCPC", type number, 23},
-    {"eCPM", type number, 24},
-    {"eCPCV", type number, 25}
+SCHEMA_TABLE = #table({"Name", "Type", "Position", "Description"}, {
+    {"campaignId", type text, 0, "Unique system-generated numerical ID assigned to each campaign"},
+    {"campaignName", type text, 1, ""},
+    {"startTime", type nullable text, 2, "Campaign start date."},
+    {"endTime", type nullable text, 3, "Campaign end date."},
+    {"campaignTimezone", type text, 4, ""},
+    {"maxBid", type number, 5, "Amount up to which you allow IQM to bid."},
+    {"budgetDay", type number, 6, "Amount up to which you allow IQM to spend on average each day."},
+    {"budgetTotal", type number, 7, "Amount up to which you allow IQM to spend."},
+    {"audioVideoViewed", type number, 8, ""},
+    {"startCount", type number, 9, "Number of video ads that start to play."},
+    {"firstCount", type number, 10, "Number of video ads that play through 25% of their duration."},
+    {"midCount", type number, 11, "Number of video ads that play through 50% of their duration."},
+    {"thirdCount", type number, 12, "Number of video ads that play through 75% of their duration."},
+    {"completeCount", type number, 13, "Number of video ads that play through to completion."},
+    {"impressions", type number, 14, "Number of times ad is displayed on someone's screen."},
+    {"clicks", type number, 15, "Number of times someone clicks your ad."},
+    {"mediaSpent", type number, 16, "Amount spent to win impressions."},
+    {"spent", type number, 17, "Sum of the Media Spent and Data Spent."},
+    {"dataCost", type number, 18, "Amount spent to serve impressions to audiences you matched or purchased."},
+    {"winRate", type number, 19, "Percentage of impressions won per bids made."},
+    {"CTR", type number, 20, "Click-through rate is the percentage of clicks received per impressions served."},
+    {"VCR", type number, 21, "Video completion rate is the percentage of video ads that play through to completion."},
+    {"eCPC", type number, 22, "Effective cost per click is the amount spent divided by the number of clicks."},
+    {"eCPM", type number, 23, "Effective cost per mile is the amount you pay per one thousand impressions."},
+    {"eCPCV", type number, 24, "Cost per completed view is the amount spent divided by the number of video ads that play through to completion."}
 });
+
+
+
+
+/*
+	getServingResultsPage retrieves a page of data from the /serving/result IQM API endpoint and returns the data as an M table.
+	If there is no more data to be retrieved then the function returns null.
+	Parameters:
+		timezoneId: The ID of a timezone (as from the IQM timezone API, or in the TIMEZONE_TABLE)
+		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
+		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
+		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
+*/
+getServingResultsPage = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, pageNum as number)  as nullable table =>
+    let
+        requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
+
+		//This record represents the request body.
+        body = Json.FromValue([								
+            total_agg = false,
+            page_number = pageNum,
+            total_count = PAGE_SIZE,
+            request_type = "total",
+            dateRange = [
+                startDate = startDateTimestamp,
+                endDate = endDateTimestamp
+            ],
+            timezone = [
+                id = timezoneId
+            ],
+            dimension = [
+                filter = [
+                    value = "campaign",
+                    label = "Campaigns"
+                ]
+            ],
+            search_field = "",
+            filters = [
+                campaign_status = "running",
+                creative_type_ids = ""
+            ],
+            sort_by = "impressions",
+            sort_type = "desc",
+            status = "running"
+        ]),   //body record
+
+		//Request headers.
+        headers = [             
+            #"Content-Type" = "application/json",
+            #"Accept" = "application/json"
+            //M engine automatically adds the Authorization header.
+            //#"Authorization" = "Bearer " & Extension.CurrentCredential()[access_token]     //get access_token from current credentials set
+        ],
+
+		//Send HTTP request to API endpoint
+		//apiResponse is a record/object containing the "total" object and "data" list of objects (see IQM API)
+        apiResponse = Json.Document(Web.Contents(requestUrl, [Headers = headers, Content = body])),         
+		
+        responseTable = if (List.Count(apiResponse[data]) = 0)  
+			//If the "data" list is empty, we've reached the end of the paginated data. So, return null.
+            then
+                null 
+			//If "data" list is not empty, create a table from the objects within the list and return that table.
+			//Include metadata: "pageNum" tells which page number this current page/table of results corresponds to. 
+			//pageNum is equal to the page_number in the request body and is used in ContentsFunction (in the nested function getNextPage) to calculate the next page's number.
+            else    
+                Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum]   
+    in
+        responseTable;
+
+	
+/*
+	ContentsFunction generates the full table of report data from /serving/result that will be presented to the Power BI user.
+	ContentsFunction repeatedly calls getServingResultsPage to gather paginated data from /serving/result until no more data is returned;
+	it then gathers the paginated data into a single M table and returns it.
+
+	Parameters are values input by the user when the user selects the IQM Reports custom connector in Power BI desktop.
+	Parameters:
+		timezoneLabel: A timezone label string (as from TIMEZONE_TABLE or the IQM API)
+		startDate: The start of the time interval to gather ad-serving report data for.
+		endDate: The end of the time interval to gather ad-serving report data for.
+*/
+ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone) as table =>
+    let
+		//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
+		
+		//Convert timezoneLabel (text) into a numerical timezone ID that can be passed to the IQM API:
+		//First, get the row in TIMEZONE_TABLE with the specified timezoneLabel
+		timezoneIdTest = Table.SelectRows(TIMEZONE_TABLE, each [label] = timezoneLabel),	//timezoneIdTest should be a single-row table
+		numRows = Table.RowCount(timezoneIdTest),	
+
+		//Test to make sure the specified timezone label was found in the TIMEZONE_TABLE; if not, default to id=11 (UTC)
+		timezoneId = if (numRows < 1)
+			then
+				11
+			else
+				Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
+
+
+		//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
+		
+        startDateDuration = startDate - UNIX_EPOCH,			
+        endDateDuration = endDate - UNIX_EPOCH,
+        startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
+        endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
+
+
+		/*
+			Nested Function: getNextPage(lastPage as table) as nullable table
+			getNextPage is a function used for the paging logic. It retrieves a page of results (represented as an M table) by calling getServingResultsPage.
+			Parameters:
+				prevPage:	A nullable table which represents the previous page of API results (null if no pages have been fetched yet/it is the first time the getNextPage function has been called).
+							Based on the prevPage argument, getNextPage calculates the next page to be fetched, requests it from the API, converts the API response to a table, and returns that table.
+							If no more data can be fetched from the API, getNextPage returns null.
+			getNextPage is passed as a parameter to the helper function Table.GenerateByPage, which repeatedly calls getNextPage() and collates all the pages/tables returned from getNextPage() into a single M table.
+		*/     
+        getNextPage = (prevPage as nullable table) as nullable table =>
+            let
+                nextPage = if (prevPage = null)
+                    then
+                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, 1)    
+                    else
+                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, Value.Metadata(prevPage)[pageNum] + 1)     
+            in
+                nextPage,
+
+		//Get full table of results, then change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
+        resultTable = Table.GenerateByPage(getNextPage),
+        resultTableSchemaEnforced = SchemaTransformTable(resultTable, SCHEMA_TABLE, EnforceSchema.Strict),
+		columnNamesMap = [
+			campaignId = "Campaign ID",
+			campaignName = "Campaign Name",
+			date = "Date",
+			startTime = "Start Date",
+			endTime = "End Date",
+			campaignTimezone = "Campaign Timezone",
+			maxBid = "Max Bid ($)",
+			budgetDay = "Daily Budget ($)",
+			budgetTotal = "Total Budget ($)",
+			audioVideoViewed = "Minutes AudioVideo Viewed",
+			startCount = "Video Start",
+			firstCount = "Video 25%",
+			midCount = "Video 50%",
+			thirdCount = "Video 75%",
+			completeCount = "Video 100%",
+			impressions = "Impressions",
+			clicks = "Clicks",
+			mediaSpent = "Media Spent",
+			spent = "Total Spent ($)",
+			dataCost = "Data Cost ($)",
+			winRate = "Win Rate (%)",
+			CTR = "CTR (%)",
+			VCR = "VCR (%)",
+			eCPC = "eCPC ($)",
+			eCPM = "eCPM ($)",
+			eCPCV = "CPCV ($)"
+		],
+		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(columnNamesMap, name))
+    in
+        resultTableWithColumnsNamed;
+
+
+//Define the type for the IQM_Reports.Contents function, including "documentation"/helptext that will be shown to the user
+ContentsFunctionType = type function (
+	timezoneLabel as (type text meta [
+		Documentation.FieldCaption = "Timezone",
+		Documentation.AllowedValues = Table.Column(TIMEZONE_TABLE, "label"),
+		Formatting.IsMultiLine = false,
+		Formatting.IsCode = false
+	]),
+	startDate as (type datetimezone meta [
+		Documentation.FieldCaption = "Date Interval Start",
+		Documentation.FieldDescription = "Start of the timeframe for the ad-serving data to include in the report.",
+		Formatting.IsMultiLine = false,
+		Formatting.IsCode = false
+	]),
+	endDate as (type datetimezone meta [
+		Documentation.FieldCaption = "Date Interval End",
+		Documentation.FieldDescription = "End of the timeframe for the ad-serving data to include in the report.",
+		Formatting.IsMultiLine = false,
+		Formatting.IsCode = false
+	]))
+	as table meta [
+		Documentation.Name = "Get Ad Serving Report Data",
+		Documentation.LongDescription = "Retrieves aggregated ad-serving report data for your ad campaigns."
+	];
+
+
+//Definitions for the connector: IQM_Reports.Contents is the connector's data source function. It is defined above as ContentsFunction.
+[DataSource.Kind="IQM_Reports", Publish="IQM_Reports.Publish"]
+shared IQM_Reports.Contents = Value.ReplaceType(ContentsFunction, ContentsFunctionType);
+
+// Data Source Kind description
+IQM_Reports = [
+    TestConnection = (dataSourcePath) => {"IQM_Reports.Contents", dataSourcePath},
+    Authentication = [
+        OAuth = [
+            StartLogin = StartLogin,
+            FinishLogin = FinishLogin,
+            Refresh = Refresh
+        ]
+    ],
+    Label = Extension.LoadString("DataSourceLabel")
+];
+
+// Data Source UI publishing description
+// Allows the connector to appear in the "Get Data" dialog of the Power BI Desktop app
+IQM_Reports.Publish = [
+    Beta = true,
+    Category = "Other",
+    ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
+    //LearnMoreUrl = "https://powerbi.microsoft.com/",
+    SourceImage = IQM_Reports.Icons,
+    SourceTypeImage = IQM_Reports.Icons
+];
+
+//Icons for the connector are defined here.
+IQM_Reports.Icons = [
+    Icon16 = { Extension.Contents("IQM_Reports_16.png"), Extension.Contents("IQM_Reports_20.png"), Extension.Contents("IQM_Reports_24.png"), Extension.Contents("IQM_Reports_32.png") },
+    Icon32 = { Extension.Contents("IQM_Reports_32.png"), Extension.Contents("IQM_Reports_40.png"), Extension.Contents("IQM_Reports_48.png"), Extension.Contents("IQM_Reports_64.png") }
+];
+
+
+
+/*
+    StartLogin is the function used to initiate the OAuth 2 login flow: it must return a record of the form:
+    [
+        LoginUri = get_authorization_code_url,
+        CallbackUri = redirect_uri,
+        WindowHeight = window_height_for_login_window,
+        WindowWidth = window_width_for_login_window,
+        Context = optional_value_passed_to_FinishLogin
+    ]
+
+	Parameters:
+		resourceUrl: Not used. The URL of the resource to be retrieved. (Some REST APIs require this for processing OAuth2 flows)
+		state: State information generated by the M engine. Not used.
+		display: Used by some APIs/OAuth2 flows to display info to the user. Not used.
+*/
+StartLogin = (resourceUrl, state, display) =>
+    let
+        queryParameters =   [
+            client_id = CLIENT_ID,
+            client_secret = CLIENT_SECRET,
+            response_type = "code",
+            scope = "read_user_info",
+            redirect_uri = REDIRECT_URI
+        ],
+        authorizationCodeUrl = AUTHORIZE_URI & "?" & Uri.BuildQueryString(queryParameters)
+    in
+        [
+            LoginUri = authorizationCodeUrl,
+            CallbackUri = REDIRECT_URI,
+            WindowHeight = WINDOW_HEIGHT,
+            WindowWidth = WINDOW_WIDTH,
+            Context = null
+        ];
+
+
+/*
+    FinishLogin is called after StartLogin, when the response containing the authorization code is received from IQM.
+    FinishLogin calls the Get Access Token https://app.iqm.com/oauth/token API method if IQM sent an authorization code.
+    Parameters:
+        context: From the record returned from StartLogin
+        callbackUri: The URI containing the authorization code sent from IQM
+        state: State info that was specified in the call to StartLogin (see StartLogin parameters.)
+*/
+FinishLogin = (context, callbackUri, state) =>
+    let
+        uriParts = Uri.Parts(callbackUri),      //Uri.Parts returns the parts of the URI parameter as a record; Host, Scheme, Path, Query, etc
+        queryStringRecord = uriParts[Query],    //[Query] is a record of URL query parameters.
+        authorizationCode = if (Record.HasFields(queryStringRecord, "code"))
+            then 
+                queryStringRecord[code]
+            else
+                error Error.Record("AuthenticationError", "Authorization code not received.", "Authorization code not received. Please check your login credentials and retry.")
+    in
+        //Now, request Access Token and Refresh Token from "Get Access Token" endpoint
+        GetToken(authorizationCode, "authorization_code", TOKEN_URI);  //Exchange auth code for access token.
+
+
+/*
+	Refresh is called when the access_token expires and the connector must exchange the refresh_token for a new access_token.
+	Parameters:
+		resourceUrl: Not used. The URL of the resource to be retrieved. (Some REST APIs require this for processing OAuth2 flows)
+		refresh_token: The refresh token to be exchanged for a new access token.
+*/
+Refresh = (resourceUrl, refresh_token) =>
+    let 
+        result = GetToken(refresh_token, "refresh_token", REFRESH_URI)
+    in
+        result;
+
+
+/*
+	GetToken is a helper function that exchanges a code (authorization code or refresh token) for an access token by calling the appropriate
+	IQM API endpoint. This function returns an M record containing, at the least, an access_token and refresh_token.
+	If an access token and refresh token cannot be retrieved from the IQM API, an error is thrown
+
+	Parameters:
+		code: Authorization code or refresh token
+		grant_type: "authorization_code" or "refresh_token"
+		requestUrl: The URL in the IQM API to send the request to in order to exchange the auth code or refresh token for an access token
+*/
+GetToken = (code, grantType, requestUrl) =>
+    let
+        body = if (grantType = "authorization_code")
+            then
+                Text.ToBinary(Uri.BuildQueryString([    //Body must be urlencoded, so use Uri.BuildQueryString to encode as URL query parameters format
+                    code = code,
+                    grant_type = grantType,
+                    redirect_uri = REDIRECT_URI,
+                    scope = "read_user_info",
+                    client_id = CLIENT_ID,
+                    client_secret = CLIENT_SECRET
+                ]))
+            else
+                Text.ToBinary(Uri.BuildQueryString([
+                    refresh_token = code,
+                    grant_type = grantType,
+                    redirect_uri = REDIRECT_URI,
+                    scope = "read_user_info",
+                    client_id = CLIENT_ID,
+                    client_secret = CLIENT_SECRET
+                ])),
+        clientIdSecret = CLIENT_ID  & ":" & CLIENT_SECRET,
+        clientIdSecretBin = Text.ToBinary(clientIdSecret),
+        clientIdSecretBin64 = Binary.ToText(clientIdSecretBin, BinaryEncoding.Base64),
+        headers = [
+            #"Accept" = "application/json",
+            #"Content-Type" = "application/x-www-form-urlencoded",
+            #"Authorization" = "Basic " & clientIdSecretBin64
+        ],
+        response = Web.Contents(requestUrl, [Headers = headers, Content = body]),
+        responseBody = Json.Document(response),    //Convert JSON response to M record.
+        result = if (Record.HasFields(responseBody, {"access_token", "refresh_token"}))
+            then
+                responseBody
+            else
+                error Error.Record("AuthenticationError", "Failed to exchange authorization code/refresh token for access token. Please try again.", "Failed to exchange authorization code/refresh token for access token. Please try again.")
+    in
+        result;     //Contains access_token and refresh_token
+
 
 
 
@@ -597,299 +935,3 @@ SchemaTransformTable = (table as table, schema as table, optional enforceSchema 
     in
         withType;
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-
-/*
-	getServingResultsPage retrieves a page of data from the /serving/result IQM API endpoint and returns the data as an M table.
-	If there is no more data to be retrieved then the function returns null.
-	Parameters:
-		timezoneId: The ID of a timezone (as from the IQM timezone API, or in the TIMEZONE_TABLE)
-		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
-		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
-		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
-*/
-getServingResultsPage = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, pageNum as number)  as nullable table =>
-    let
-        requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
-
-		//This record represents the request body.
-        body = Json.FromValue([								
-            total_agg = false,
-            page_number = pageNum,
-            total_count = PAGE_SIZE,
-            request_type = "total",
-            dateRange = [
-                startDate = startDateTimestamp,
-                endDate = endDateTimestamp
-            ],
-            timezone = [
-                id = timezoneId
-            ],
-            dimension = [
-                filter = [
-                    value = "campaign",
-                    label = "Campaigns"
-                ]
-            ],
-            search_field = "",
-            filters = [
-                campaign_status = "running",
-                creative_type_ids = ""
-            ],
-            sort_by = "impressions",
-            sort_type = "desc",
-            status = "running"
-        ]),   //body record
-
-		//Request headers.
-        headers = [             
-            #"Content-Type" = "application/json",
-            #"Accept" = "application/json"
-            //M engine automatically adds the Authorization header.
-            //#"Authorization" = "Bearer " & Extension.CurrentCredential()[access_token]     //get access_token from current credentials set
-        ],
-
-		//Send HTTP request to API endpoint
-		//apiResponse is a record/object containing the "total" object and "data" list of objects (see IQM API)
-        apiResponse = Json.Document(Web.Contents(requestUrl, [Headers = headers, Content = body])),         
-		
-        responseTable = if (List.Count(apiResponse[data]) = 0)  
-			//If the "data" list is empty, we've reached the end of the paginated data. So, return null.
-            then
-                null 
-			//If "data" list is not empty, create a table from the objects within the list and return that table.
-			//Include metadata: "pageNum" tells which page number this current page/table of results corresponds to. 
-			//pageNum is equal to the page_number in the request body and is used in ContentsFunction (in the nested function getNextPage) to calculate the next page's number.
-            else    
-                Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum]   
-    in
-        responseTable;
-
-	
-/*
-	ContentsFunction generates the full table of report data from /serving/result that will be presented to the Power BI user.
-	ContentsFunction repeatedly calls getServingResultsPage to gather paginated data from /serving/result until no more data is returned;
-	it then gathers the paginated data into a single M table and returns it.
-
-	Parameters are values input by the user when the user selects the IQM Reports custom connector in Power BI desktop.
-	Parameters:
-		timezoneLabel: A timezone label string (as from TIMEZONE_TABLE or the IQM API)
-		startDate: The start of the time interval to gather ad-serving report data for.
-		endDate: The end of the time interval to gather ad-serving report data for.
-*/
-ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone) as table =>
-    let
-		//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
-		
-		//Convert timezoneLabel (text) into a numerical timezone ID that can be passed to the IQM API:
-		//First, get the row in TIMEZONE_TABLE with the specified timezoneLabel
-		timezoneIdTest = Table.SelectRows(TIMEZONE_TABLE, each [label] = timezoneLabel),	//timezoneIdTest should be a single-row table
-		numRows = Table.RowCount(timezoneIdTest),	
-
-		//Test to make sure the specified timezone label was found in the TIMEZONE_TABLE; if not, default to id=11 (UTC)
-		timezoneId = if (numRows < 1)
-			then
-				11
-			else
-				Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
-
-
-		//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
-		
-		//startDateDuration is a value of type duration; the amount of time between the unix epoch and the start date.
-        startDateDuration = startDate - UNIX_EPOCH,			
-        endDateDuration = endDate - UNIX_EPOCH,
-		
-		//startDateTimestamp is the startDate as a Unix timestamp, expressed in milliseconds.
-        startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
-        endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
-
-
-		/*
-			Nested Function: getNextPage(lastPage as table) as nullable table
-			getNextPage is a function used for the paging logic. It retrieves a page of results (represented as an M table) by calling getServingResultsPage.
-			Parameters:
-				prevPage:	A nullable table which represents the previous page of API results (null if no pages have been fetched yet/it is the first time the getNextPage function has been called).
-							Based on the prevPage argument, getNextPage calculates the next page to be fetched, requests it from the API, converts the API response to a table, and returns that table.
-							If no more data can be fetched from the API, getNextPage returns null.
-			getNextPage is passed as a parameter to the helper function Table.GenerateByPage, which repeatedly calls getNextPage() and collates all the pages/tables returned from getNextPage() into a single M table.
-		*/     
-        getNextPage = (prevPage as nullable table) as nullable table =>
-            let
-                nextPage = if (prevPage = null)
-                    then
-						//If prevPage == null, then get the first page of results.
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, 1)    
-                    else
-						//If prevPage != null, add 1 to the prevPage's page number and retrieve the next page.
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, Value.Metadata(prevPage)[pageNum] + 1)     
-            in
-                nextPage,
-
-		//Get full table of results, then enforce the schema defined in SCHEMA_TABLE
-        resultTable = Table.GenerateByPage(getNextPage),
-        resultTableSchemaEnforced = SchemaTransformTable(resultTable, SCHEMA_TABLE, EnforceSchema.Strict)
-    in
-        resultTableSchemaEnforced;
-
-
-//Define the type for the IQM_Reports.Contents function, including "documentation"/helptext that will be shown to the user
-ContentsFunctionType = type function (timezoneLabel as timezone, startDate as datetimezone, endDate as datetimezone) as table;
-
-
-//Definitions for the connector: IQM_Reports.Contents is the connector's data source function. It is defined above as ContentsFunction.
-[DataSource.Kind="IQM_Reports", Publish="IQM_Reports.Publish"]
-shared IQM_Reports.Contents = Value.ReplaceType(ContentsFunction, ContentsFunctionType);
-
-// Data Source Kind description
-IQM_Reports = [
-    TestConnection = (dataSourcePath) => {"IQM_Reports.Contents", dataSourcePath},
-    Authentication = [
-        OAuth = [
-            StartLogin = StartLogin,
-            FinishLogin = FinishLogin,
-            Refresh = Refresh
-        ]
-    ],
-    Label = Extension.LoadString("DataSourceLabel")
-];
-
-// Data Source UI publishing description
-// Allows the connector to appear in the "Get Data" dialog of the Power BI Desktop app
-IQM_Reports.Publish = [
-    Beta = true,
-    Category = "Other",
-    ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
-    //LearnMoreUrl = "https://powerbi.microsoft.com/",
-    SourceImage = IQM_Reports.Icons,
-    SourceTypeImage = IQM_Reports.Icons
-];
-
-//Icons for the connector are defined here.
-IQM_Reports.Icons = [
-    Icon16 = { Extension.Contents("IQM_Reports_16.png"), Extension.Contents("IQM_Reports_20.png"), Extension.Contents("IQM_Reports_24.png"), Extension.Contents("IQM_Reports_32.png") },
-    Icon32 = { Extension.Contents("IQM_Reports_32.png"), Extension.Contents("IQM_Reports_40.png"), Extension.Contents("IQM_Reports_48.png"), Extension.Contents("IQM_Reports_64.png") }
-];
-
-
-/*
-    StartLogin is the function used to initiate the OAuth 2 login flow: it must return a record of the form:
-    [
-        LoginUri = get_authorization_code_url,
-        CallbackUri = redirect_uri,
-        WindowHeight = window_height_for_login_window,
-        WindowWidth = window_width_for_login_window,
-        Context = optional_value_passed_to_FinishLogin
-    ]
-
-	Parameters:
-		resourceUrl: Not used. The URL of the resource to be retrieved. (Some REST APIs require this for processing OAuth2 flows)
-		state: State information generated by the M engine. Not used.
-		display: Used by some APIs/OAuth2 flows to display info to the user. Not used.
-*/
-StartLogin = (resourceUrl, state, display) =>
-    let
-        queryParameters =   [
-            client_id = CLIENT_ID,
-            client_secret = CLIENT_SECRET,
-            response_type = "code",
-            scope = "read_user_info",
-            redirect_uri = REDIRECT_URI
-        ],
-        authorizationCodeUrl = AUTHORIZE_URI & "?" & Uri.BuildQueryString(queryParameters)
-    in
-        [
-            LoginUri = authorizationCodeUrl,
-            CallbackUri = REDIRECT_URI,
-            WindowHeight = WINDOW_HEIGHT,
-            WindowWidth = WINDOW_WIDTH,
-            Context = null
-        ];
-
-/*
-    FinishLogin is called after StartLogin, when the response containing the authorization code is received from IQM.
-    FinishLogin calls the Get Access Token https://app.iqm.com/oauth/token API method if IQM sent an authorization code.
-    
-    Parameters:
-        context: From the record returned from StartLogin
-        callbackUri: The URI containing the authorization code sent from IQM
-        state: State info that was specified in the call to StartLogin (see StartLogin parameters.)
-*/
-FinishLogin = (context, callbackUri, state) =>
-    let
-        uriParts = Uri.Parts(callbackUri),      //Uri.Parts returns the parts of the URI parameter as a record; Host, Scheme, Path, Query, etc
-        queryStringRecord = uriParts[Query],    //[Query] is a record of URL query parameters.
-        authorizationCode = if (Record.HasFields(queryStringRecord, "code"))
-            then 
-                queryStringRecord[code]
-            else
-                error Error.Record("AuthenticationError", "Authorization code not received.", "Authorization code not received. Please check your login credentials and retry.")
-    in
-        //Now, request Access Token and Refresh Token from "Get Access Token" endpoint
-        GetToken(authorizationCode, "authorization_code", TOKEN_URI);  //Exchange auth code for access token.
-
-/*
-	Refresh is called when the access_token expires and the connector must exchange the refresh_token for a new access_token.
-	Parameters:
-		resourceUrl: Not used. The URL of the resource to be retrieved. (Some REST APIs require this for processing OAuth2 flows)
-		refresh_token: The refresh token to be exchanged for a new access token.
-*/
-Refresh = (resourceUrl, refresh_token) =>
-    let 
-        result = GetToken(refresh_token, "refresh_token", REFRESH_URI)
-    in
-        result;
-
-/*
-	GetToken is a helper function that exchanges a code (authorization code or refresh token) for an access token by calling the appropriate
-	IQM API endpoint.
-
-	Parameters:
-		code: Authorization code or refresh token
-		grant_type: "authorization_code" or "refresh_token"
-		requestUrl: The URL in the IQM API to send the request to in order to exchange the auth code or refresh token for an access token
-
-	This function returns an M record containing, at the least, an access_token and refresh_token.
-	If an access token and refresh token cannot be retrieved from the IQM API, an error is thrown
-*/
-GetToken = (code, grantType, requestUrl) =>
-    let
-        body = if (grantType = "authorization_code")
-            then
-                Text.ToBinary(Uri.BuildQueryString([    //Body must be urlencoded, so use Uri.BuildQueryString to encode as URL query parameters format
-                    code = code,
-                    grant_type = grantType,
-                    redirect_uri = REDIRECT_URI,
-                    scope = "read_user_info",
-                    client_id = CLIENT_ID,
-                    client_secret = CLIENT_SECRET
-                ]))
-            else
-                Text.ToBinary(Uri.BuildQueryString([
-                    refresh_token = code,
-                    grant_type = grantType,
-                    redirect_uri = REDIRECT_URI,
-                    scope = "read_user_info",
-                    client_id = CLIENT_ID,
-                    client_secret = CLIENT_SECRET
-                ])),
-        clientIdSecret = CLIENT_ID  & ":" & CLIENT_SECRET,
-        clientIdSecretBin = Text.ToBinary(clientIdSecret),
-        clientIdSecretBin64 = Binary.ToText(clientIdSecretBin, BinaryEncoding.Base64),
-        headers = [
-            #"Accept" = "application/json",
-            #"Content-Type" = "application/x-www-form-urlencoded",
-            #"Authorization" = "Basic " & clientIdSecretBin64
-        ],
-        response = Web.Contents(requestUrl, [Headers = headers, Content = body]),
-        responseBody = Json.Document(response),    //Convert JSON response to M record.
-        result = if (Record.HasFields(responseBody, {"access_token", "refresh_token"}))
-            then
-                responseBody
-            else
-                error Error.Record("AuthenticationError", "Failed to exchange authorization code/refresh token for access token. Please try again.", "Failed to exchange authorization code/refresh token for access token. Please try again.")
-    in
-        result;     //Contains access_token and refresh_token
