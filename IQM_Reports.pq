@@ -16,7 +16,7 @@ WINDOW_WIDTH = 800;
 UNIX_EPOCH = #datetimezone(1970, 1, 1, 0, 0, 0, 0, 0);
 
 //Page size, for paging.
-PAGE_SIZE = 5;     //CHANGE THIS BEFORE RELEASE!!!
+PAGE_SIZE = 10;     //CHANGE THIS BEFORE RELEASE!!!
 
 //Table mapping timezone "label" strings (shown to the user in a dropdown menu) to timezone "value"s (ids to be passed to the API)
 //Labels and values are copied from the IQM timezone API
@@ -458,10 +458,10 @@ TIMEZONE_TABLE = #table( {"value", "label"}, {
 
 
 
-//The SCHEMA_TABLE table is used as a "schema" for the table that the API results from /serving/result will be placed in. 
+//The SCHEMA_TABLE_AGGREGATED table is used as a "schema" for the table that the API results (from /serving/result, with request_type = "total") will be placed in. 
 //It defines the order of columns and the M data type of each column. 
 //The ad-serving data from the /serving/result API endpoint will be placed into a table formatted according to the SCHEMA_TABLE.
-SCHEMA_TABLE = #table({"Name", "Type", "Position", "Description"}, {
+SCHEMA_TABLE_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
     {"campaignId", type text, 0, "Unique system-generated numerical ID assigned to each campaign"},
     {"campaignName", type text, 1, ""},
     {"startTime", type nullable date, 2, "Campaign start date."},
@@ -488,6 +488,10 @@ SCHEMA_TABLE = #table({"Name", "Type", "Position", "Description"}, {
     {"eCPCV", type number, 23, "Cost per completed view is the amount spent divided by the number of video ads that play through to completion."}
 });
 
+
+//SCHEMA_TABLE_DAILY is used as a "schema" for the table that the API results (from /serving/result, with request_type = "total") will be placed in. 
+//It is the SCHEMA_TABLE_AGGREGATED table, with a row inserted at the beginning corresponding to the "Date" column in the API result table.
+SCHEMA_TABLE_DAILY = #table( {"Name", "Type", "Position", "Description"}, List.Union({ {{"date", type nullable date, 0, "Date"}}, Table.ToRows(Table.TransformColumns(SCHEMA_TABLE_AGGREGATED, {"Position", (pos) => if (pos <> null) then pos + 1 else null})) }));
 
 
 /*
@@ -529,15 +533,16 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 
 
 /*
-	getServingResultsPage retrieves a page of data from the /serving/result IQM API endpoint and returns the data as an M table.
+	getServingResultsPage retrieves a single page of data from the /serving/result IQM API endpoint and returns the data as an M table.
 	If there is no more data to be retrieved then the function returns null.
 	Parameters:
 		timezoneId: The ID of a timezone (as from the IQM timezone API, or in the TIMEZONE_TABLE)
 		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
 		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
+		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
-getServingResultsPage = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, pageNum as number)  as nullable table =>
+getServingResultsPage = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, aggregation as text, pageNum as number)  as nullable table =>
     let
         requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
 
@@ -546,7 +551,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
             total_agg = false,
             page_number = pageNum,
             total_count = PAGE_SIZE,
-            request_type = "total",
+            request_type = aggregation,
             dateRange = [
                 startDate = startDateTimestamp,
                 endDate = endDateTimestamp
@@ -565,7 +570,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
                 campaign_status = "running",
                 creative_type_ids = ""
             ],
-            sort_by = "impressions",
+            sort_by = if (aggregation = "daily") then "date" else "impressions",
             sort_type = "desc",
             status = "running"
         ]),   //body record
@@ -594,12 +599,71 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
         responseTable;
 
 
+/*
+	The GetServingResultsTable function repeatedly calls the GetServingResultsPage function in order to retrieve all pages of data from the API.
+	It then gathers the paginated data into a single M table, which it returns. 
+
+	GetServingResultsTable's parameters are passed as-is to the corresponding parameters of the GetServingResultsPage function, where they are inserted
+	into the body of the API request to /serving/result.
+*/
+GetServingResultsTable = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, aggregation as text) as nullable table =>
+	let
+		/*
+			Nested Function: getNextPage(lastPage as table) as nullable table
+			getNextPage is a function used for the paging logic. It retrieves a page of results (represented as an M table) by calling getServingResultsPage.
+			Parameters:
+				prevPage:	A nullable table which represents the previous page of API results (null if no pages have been fetched yet/it is the first time the getNextPage function has been called).
+							Based on the prevPage argument, getNextPage calculates the next page to be fetched, requests it from the API, converts the API response to a table, and returns that table.
+							If no more data can be fetched from the API, getNextPage returns null.
+			getNextPage is passed as a parameter to the helper function Table.GenerateByPage, which repeatedly calls getNextPage() and collates all the pages/tables returned from getNextPage() into a single M table.
+		*/     
+        getNextPage = (prevPage as nullable table) as nullable table =>
+            let
+                nextPage = if (prevPage = null)
+                    then
+                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, aggregation, 1)    
+                    else
+                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
+            in
+                nextPage,
+
+		/*
+			The nested transformColumns function applies the required processing to the values in certain columns of the table returned from
+			Table.GenerateByPage. It converts the audioVideoViewed column to duration values, and startTime and endTime columns to date values.
+		*/
+		transformColumns = (inputTable as table) as table =>
+			let
+				withAudioVideoAsDuration = Table.TransformColumns(inputTable, {"audioVideoViewed", (value) => #duration(0, 0, 0, value)}),
+				withStartTimeAsDate = Table.TransformColumns(withAudioVideoAsDuration, {"startTime", TimestampToDate}),
+				withEndTimeAsDate = Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}),
+				withDateAsDate = Table.TransformColumns(withEndTimeAsDate, {"date", (value) => if (value <> null) then Date.FromText(value) else null})
+			in 
+				withDateAsDate,
+
+		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
+        resultTable = Table.GenerateByPage(getNextPage),
+		resultTableValuesConverted = transformColumns(resultTable),
+        resultTableSchemaEnforced = if (aggregation = "total")
+			then 
+				SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE_AGGREGATED, EnforceSchema.Strict)
+			else
+				SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE_DAILY, EnforceSchema.Strict),
+		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name))
+	in
+		resultTableWithColumnsNamed;
+		
+
 
 
 /*
-	ContentsFunction generates the full table of report data from /serving/result that will be presented to the Power BI user.
-	ContentsFunction repeatedly calls getServingResultsPage to gather paginated data from /serving/result until no more data is returned;
-	it then gathers the paginated data into a single M table and returns it.
+	ContentsFunction receives as arguments the values input by the user when the user configures the connector in Power BI Desktop.
+
+	It converts those raw parameters into values and types expected by the /serving/result IQM API endpoint and
+	passes those converted values to GetServingResulsTable, which returns the ad-serving report data from the API as M tables.
+	ContentsFunction calls GetServingResultsTable twice in order to get both a table of aggregated report data and a table of daily report data.
+
+	Finally, ContentsFunction creates and returns a user-friendly navigation table containing the two aforementioned tables. This allows the Power BI user
+	to import both or either of these tables into their Power BI Desktop report.
 
 	Parameters are values input by the user when the user selects the IQM Reports custom connector in Power BI desktop.
 	Parameters:
@@ -629,48 +693,15 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
         startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
         endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
 
+		//Get the API /serving/results data as M tables.
+		servingResultsAggregated = GetServingResultsTable(timezoneId, startDateTimestamp, endDateTimestamp, "total"),
+		servingResultsDaily = GetServingResultsTable(timezoneId, startDateTimestamp, endDateTimestamp, "daily"),
 
-		/*
-			Nested Function: getNextPage(lastPage as table) as nullable table
-			getNextPage is a function used for the paging logic. It retrieves a page of results (represented as an M table) by calling getServingResultsPage.
-			Parameters:
-				prevPage:	A nullable table which represents the previous page of API results (null if no pages have been fetched yet/it is the first time the getNextPage function has been called).
-							Based on the prevPage argument, getNextPage calculates the next page to be fetched, requests it from the API, converts the API response to a table, and returns that table.
-							If no more data can be fetched from the API, getNextPage returns null.
-			getNextPage is passed as a parameter to the helper function Table.GenerateByPage, which repeatedly calls getNextPage() and collates all the pages/tables returned from getNextPage() into a single M table.
-		*/     
-        getNextPage = (prevPage as nullable table) as nullable table =>
-            let
-                nextPage = if (prevPage = null)
-                    then
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, 1)    
-                    else
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, Value.Metadata(prevPage)[pageNum] + 1)     
-            in
-                nextPage,
-
-		/*
-			The nested transformColumns function applies the required processing to the values in certain columns of the table returned from
-			Table.GenerateByPage. It converts the audioVideoViewed column to duration values, and startTime and endTime columns to date values.
-		*/
-		transformColumns = (inputTable as table) as table =>
-			let
-				withAudioVideoAsDuration = Table.TransformColumns(inputTable, {"audioVideoViewed", (value) => #duration(0, 0, 0, value)}),
-				withStartTimeAsDate = Table.TransformColumns(withAudioVideoAsDuration, {"startTime", TimestampToDate}),
-				withEndTimeAsDate = Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate})
-			in 
-				withEndTimeAsDate,
-
-		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
-        resultTable = Table.GenerateByPage(getNextPage),
-		resultTableValuesConverted = transformColumns(resultTable),
-        resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE, EnforceSchema.Strict),
-		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name)),
-		
-		//Convert the result table to a navigation table and return the navigation table.
+		//Insert the tables into a navigation table and return the navigation table.
 		navTableFxnParam = #table(
 			{"Name", "Key", "Data", "ItemKind", "ItemName", "IsLeaf"}, {
-			{"AdServingReportAggregated", "AdServingReportAggregated", resultTableWithColumnsNamed, "Table", "Table", true}
+			{"Aggregated Ad Serving Report", "AdServingReportAggregated", servingResultsAggregated, "Table", "Table", true},
+			{"Daily Ad Serving Report", "AdServingReportDaily", servingResultsDaily, "Table", "Table", true}
 		}),
 		navTable = Table.ToNavigationTable(navTableFxnParam, {"Key"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
 	in
