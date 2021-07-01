@@ -1,4 +1,5 @@
 ﻿// This file contains your Data Connector logic
+[Version = "1.0.0"]
 section IQM_Reports;
 
 //OAuth2 constants
@@ -606,7 +607,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
 		startDate: The start of the time interval to gather ad-serving report data for.
 		endDate: The end of the time interval to gather ad-serving report data for.
 */
-ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone) as table =>
+ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone) as nullable table =>
     let
 		//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
 		
@@ -698,8 +699,8 @@ ContentsFunctionType = type function (
 		Formatting.IsCode = false
 	]))
 	as table meta [
-		Documentation.Name = "Get Ad Serving Report Data",
-		Documentation.LongDescription = "Retrieves aggregated ad-serving report data for your ad campaigns."
+		Documentation.Name = "IQM Reports",
+		Documentation.LongDescription = "Get your IQM campaigns reporting data. Retrieves aggregated ad-serving report data for your ad campaigns."
 	];
 
 
@@ -707,9 +708,17 @@ ContentsFunctionType = type function (
 [DataSource.Kind="IQM_Reports", Publish="IQM_Reports.Publish"]
 shared IQM_Reports.Contents = Value.ReplaceType(ContentsFunction, ContentsFunctionType);
 
+ 
 // Data Source Kind description
 IQM_Reports = [
-    TestConnection = (dataSourcePath) => {"IQM_Reports.Contents", dataSourcePath},
+    TestConnection = (dataSourcePath) => 
+		let
+			json = Json.Document(dataSourcePath),
+			timezoneLabel = json[timezoneLabel],
+			startDate = json[startDate],
+			endDate = json[endDate]
+		in
+			{"IQM_Reports.Contents", timezoneLabel, startDate, endDate},
     Authentication = [
         OAuth = [
             StartLogin = StartLogin,
@@ -724,7 +733,7 @@ IQM_Reports = [
 // Allows the connector to appear in the "Get Data" dialog of the Power BI Desktop app
 IQM_Reports.Publish = [
     Beta = true,
-    Category = "Other",
+    Category = "Online Services",
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
     //LearnMoreUrl = "https://powerbi.microsoft.com/",
     SourceImage = IQM_Reports.Icons,
