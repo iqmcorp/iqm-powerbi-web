@@ -2,6 +2,11 @@
 [Version = "1.0.0"]
 section IQM_Reports;
 
+
+/*
+	Part 1: Constants
+	OAuth constants, TIMEZONE_TABLE, schema tables, map of API column names to user-friendly column names.
+*/
 //OAuth2 constants
 CLIENT_ID = "ZYDPLLBWSK3MVQJSIYHB1OR2JXCY0X2C5UJ2QAR2MAAIT5Q";
 CLIENT_SECRET = "fNZiRPyz0PfWSqfLrRkdw1Ou";
@@ -16,7 +21,7 @@ WINDOW_WIDTH = 800;
 UNIX_EPOCH = #datetimezone(1970, 1, 1, 0, 0, 0, 0, 0);
 
 //Page size, for paging.
-PAGE_SIZE = 10;     //CHANGE THIS BEFORE RELEASE!!!
+PAGE_SIZE = 50;     
 
 //Table mapping timezone "label" strings (shown to the user in a dropdown menu) to timezone "value"s (ids to be passed to the API)
 //Labels and values are copied from the IQM timezone API
@@ -469,7 +474,7 @@ SCHEMA_TABLE_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
     {"maxBid", type number, 4, "Amount up to which you allow IQM to bid."},
     {"budgetDay", type number, 5, "Amount up to which you allow IQM to spend on average each day."},
     {"budgetTotal", type number, 6, "Amount up to which you allow IQM to spend."},
-    {"audioVideoViewed", type duration, 7, "Total duration of audio/video ads viewed."},
+    {"audioVideoViewed", type number, 7, "Total duration of audio/video ads viewed."},
     {"startCount", type number, 8, "Number of video ads that start to play."},
     {"firstCount", type number, 9, "Number of video ads that play through 25% of their duration."},
     {"midCount", type number, 10, "Number of video ads that play through 50% of their duration."},
@@ -511,7 +516,7 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	maxBid = "Max Bid ($)",
 	budgetDay = "Daily Budget ($)",
 	budgetTotal = "Total Budget ($)",
-	audioVideoViewed = "Duration Audio Video Viewed",
+	audioVideoViewed = "Seconds Viewed",
 	startCount = "Video Start",
 	firstCount = "Video 25%",
 	midCount = "Video 50%",
@@ -537,12 +542,13 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	If there is no more data to be retrieved then the function returns null.
 	Parameters:
 		timezoneId: The ID of a timezone (as from the IQM timezone API, or in the TIMEZONE_TABLE)
+		timezoneString: The string representing the same timezone as the timezoneId; example: "Europe/London"
 		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
 		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
 		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
-getServingResultsPage = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, aggregation as text, pageNum as number)  as nullable table =>
+getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, aggregation as text, pageNum as number)  as nullable table =>
     let
         requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
 
@@ -557,6 +563,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
                 endDate = endDateTimestamp
             ],
             timezone = [
+				value = timezoneString,
 				id = timezoneId
             ],
             dimension = [
@@ -606,7 +613,7 @@ getServingResultsPage = (timezoneId as number, startDateTimestamp as number, end
 	GetServingResultsTable's parameters are passed as-is to the corresponding parameters of the GetServingResultsPage function, where they are inserted
 	into the body of the API request to /serving/result.
 */
-GetServingResultsTable = (timezoneId as number, startDateTimestamp as number, endDateTimestamp as number, aggregation as text) as nullable table =>
+GetServingResultsTable = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, aggregation as text) as nullable table =>
 	let
 		/*
 			Nested Function: getNextPage(lastPage as table) as nullable table
@@ -621,9 +628,9 @@ GetServingResultsTable = (timezoneId as number, startDateTimestamp as number, en
             let
                 nextPage = if (prevPage = null)
                     then
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, aggregation, 1)    
+                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, aggregation, 1)    
                     else
-                        getServingResultsPage(timezoneId, startDateTimestamp, endDateTimestamp, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
+                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
             in
                 nextPage,
 
@@ -633,8 +640,7 @@ GetServingResultsTable = (timezoneId as number, startDateTimestamp as number, en
 		*/
 		transformColumns = (inputTable as table) as table =>
 			let
-				withAudioVideoAsDuration = Table.TransformColumns(inputTable, {"audioVideoViewed", (value) => #duration(0, 0, 0, value)}),
-				withStartTimeAsDate = Table.TransformColumns(withAudioVideoAsDuration, {"startTime", TimestampToDate}),
+				withStartTimeAsDate = Table.TransformColumns(inputTable, {"startTime", TimestampToDate}),
 				withEndTimeAsDate = Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}),
 				withDateAsDate = Table.TransformColumns(withEndTimeAsDate, {"date", (value) => if (value <> null) then Date.FromText(value) else null})
 			in 
@@ -694,8 +700,8 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
         endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
 
 		//Get the API /serving/results data as M tables.
-		servingResultsAggregated = GetServingResultsTable(timezoneId, startDateTimestamp, endDateTimestamp, "total"),
-		servingResultsDaily = GetServingResultsTable(timezoneId, startDateTimestamp, endDateTimestamp, "daily"),
+		servingResultsAggregated = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "total"),
+		servingResultsDaily = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "daily"),
 
 		//Insert the tables into a navigation table and return the navigation table.
 		navTableFxnParam = #table(
@@ -766,7 +772,6 @@ IQM_Reports.Publish = [
     Beta = true,
     Category = "Online Services",
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
-    //LearnMoreUrl = "https://powerbi.microsoft.com/",
     SourceImage = IQM_Reports.Icons,
     SourceTypeImage = IQM_Reports.Icons
 ];
