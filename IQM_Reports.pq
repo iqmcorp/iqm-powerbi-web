@@ -466,7 +466,7 @@ TIMEZONE_TABLE = #table( {"value", "label"}, {
 //The SCHEMA_TABLE_AGGREGATED table is used as a "schema" for the table that the API results (from /serving/result, with request_type = "total") will be placed in. 
 //It defines the order of columns and the M data type of each column. 
 //The ad-serving data from the /serving/result API endpoint will be placed into a table formatted according to the SCHEMA_TABLE.
-SCHEMA_TABLE_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
+SCHEMA_CAMPAIGN_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
     {"campaignId", type text, 0, "Unique system-generated numerical ID assigned to each campaign"},
     {"campaignName", type text, 1, ""},
     {"startTime", type nullable date, 2, "Campaign start date."},
@@ -496,7 +496,117 @@ SCHEMA_TABLE_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
 
 //SCHEMA_TABLE_DAILY is used as a "schema" for the table that the API results (from /serving/result, with request_type = "total") will be placed in. 
 //It is the SCHEMA_TABLE_AGGREGATED table, with a row inserted at the beginning corresponding to the "Date" column in the API result table.
-SCHEMA_TABLE_DAILY = #table( {"Name", "Type", "Position", "Description"}, List.Union({ {{"date", type nullable date, 0, "Date"}}, Table.ToRows(Table.TransformColumns(SCHEMA_TABLE_AGGREGATED, {"Position", (pos) => if (pos <> null) then pos + 1 else null})) }));
+SCHEMA_CAMPAIGN_DAILY = #table( {"Name", "Type", "Position", "Description"}, List.Union({ {{"date", type nullable date, 0, "Date"}}, Table.ToRows(Table.TransformColumns(SCHEMA_CAMPAIGN_AGGREGATED, {"Position", (pos) => if (pos <> null) then pos + 1 else null})) }));
+
+
+//Used as the schema for the /serving/results result table grouped by the creative dimension and aggregated
+SCHEMA_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
+	{"audioVideoViewed", type number, 0},
+	{"creativeId", type number, 1},
+	{"creativeName", type text, 2},
+	{"impressions", type number, 3},
+	{"clicks", type number, 4},
+	{"mediaSpent", type number, 5},
+	{"spent", type number, 6},
+	{"dataCost", type number, 7},
+	{"winRate", type number, 8},
+	{"CTR", type number, 9},
+	{"VCR", type number, 10},
+	{"eCPC", type number, 11},
+	{"eCPM", type number, 12},
+	{"eCPCV", type number, 13},
+	{"startCount", type number, 14},
+    {"firstCount", type number, 15},
+    {"midCount", type number, 16},
+    {"thirdCount", type number, 17},
+    {"completeCount", type number, 18}
+});
+
+
+//Used as the schema for the /serving/results result table grouped by the creative dimension
+SCHEMA_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
+	{"date", type nullable date, 0},
+	{"audioVideoViewed", type number, 1},
+	{"creativeId", type number, 2},
+	{"creativeName", type text, 3},
+	{"impressions", type number, 4},
+	{"clicks", type number, 5},
+	{"mediaSpent", type number, 6},
+	{"spent", type number, 7},
+	{"dataCost", type number, 8},
+	{"winRate", type number, 9},
+	{"CTR", type number, 10},
+	{"VCR", type number, 11},
+	{"eCPC", type number, 12},
+	{"eCPM", type number, 13},
+	{"eCPCV", type number, 14},
+	{"startCount", type number, 15},
+    {"firstCount", type number, 16},
+    {"midCount", type number, 17},
+    {"thirdCount", type number, 18},
+    {"completeCount", type number, 19}
+});
+
+
+SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
+	{"campaignId", type text, 0},
+	{"creativeId", type number, 1},
+	{"campaignName", type text, 2},
+	{"creativeName", type text, 3},
+	{"startTime", type nullable date, 4},
+    {"endTime", type nullable date, 5},
+    {"maxBid", type number, 6},
+    {"budgetDay", type number, 7},
+    {"budgetTotal", type number, 8},
+    {"impressions", type number, 9},
+	{"clicks", type number, 10},
+	{"mediaSpent", type number, 11},
+	{"spent", type number, 12},
+	{"dataCost", type number, 13},
+	{"winRate", type number, 14},
+	{"CTR", type number, 15},
+	{"VCR", type number, 16},
+	{"eCPC", type number, 17},
+	{"eCPM", type number, 18},
+	{"eCPCV", type number, 19},
+	{"startCount", type number, 20},
+    {"firstCount", type number, 21},
+    {"midCount", type number, 22},
+    {"thirdCount", type number, 23},
+    {"completeCount", type number, 24}
+});
+
+
+SCHEMA_CAMPAIGN_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
+	{"date", type nullable date, 0},
+	{"campaignId", type text, 1},
+	{"creativeId", type number, 2},
+	{"campaignName", type text, 3},
+	{"creativeName", type text, 4},
+	{"startTime", type nullable date, 5},
+    {"endTime", type nullable date, 6},
+    {"maxBid", type number, 7},
+    {"budgetDay", type number, 8},
+    {"budgetTotal", type number, 9},
+    {"impressions", type number, 10},
+	{"clicks", type number, 11},
+	{"mediaSpent", type number, 12},
+	{"spent", type number, 13},
+	{"dataCost", type number, 14},
+	{"winRate", type number, 15},
+	{"CTR", type number, 16},
+	{"VCR", type number, 17},
+	{"eCPC", type number, 18},
+	{"eCPM", type number, 19},
+	{"eCPCV", type number, 20},
+	{"startCount", type number, 21},
+    {"firstCount", type number, 22},
+    {"midCount", type number, 23},
+    {"thirdCount", type number, 24},
+    {"completeCount", type number, 25}
+});
+
+
 
 
 /*
@@ -507,6 +617,8 @@ SCHEMA_TABLE_DAILY = #table( {"Name", "Type", "Position", "Description"}, List.U
 	named "Max Bid ($)".
 */
 COLUMN_NAMES_MAP_API_TO_UI = [
+	creativeId = "Creative ID",
+	creativeName = "Creative Name",
 	campaignId = "Campaign ID",
 	campaignName = "Campaign Name",
 	date = "Date",
@@ -516,7 +628,7 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	maxBid = "Max Bid ($)",
 	budgetDay = "Daily Budget ($)",
 	budgetTotal = "Total Budget ($)",
-	audioVideoViewed = "Seconds Viewed",
+	audioVideoViewed = "Seconds AudioVideo Viewed",
 	startCount = "Video Start",
 	firstCount = "Video 25%",
 	midCount = "Video 50%",
@@ -538,6 +650,10 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 
 
 /*
+	Part 2: Functions to retrieve and transform API results
+*/
+
+/*
 	getServingResultsPage retrieves a single page of data from the /serving/result IQM API endpoint and returns the data as an M table.
 	If there is no more data to be retrieved then the function returns null.
 	Parameters:
@@ -548,12 +664,12 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
 		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
-getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, aggregation as text, pageNum as number)  as nullable table =>
+getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text, pageNum as number)  as nullable table =>
     let
         requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
 
 		//This record represents the request body.
-        body = Json.FromValue([								
+		bodyRecord = [								
             total_agg = false,
             page_number = pageNum,
             total_count = PAGE_SIZE,
@@ -568,8 +684,8 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
             ],
             dimension = [
                 filter = [
-                    value = "campaign",
-                    label = "Campaigns"
+                    value = dimension,
+                    label = if (dimension = "campaign") then "Campaigns" else "Creatives"
                 ]
             ],
             search_field = "",
@@ -580,7 +696,17 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
             sort_by = if (aggregation = "daily") then "date" else "impressions",
             sort_type = "desc",
             status = "running"
-        ]),   //body record
+        ], //body record
+
+		secondDimensionRecord = [
+			filter = [
+				value = secondDimension,
+				label = if (secondDimension = "creative") then "Campaigns" else "Creatives"
+			]
+		],
+		
+
+        body = Json.FromValue(if (secondDimension = null) then bodyRecord else Record.AddField(bodyRecord, "secondDimension", secondDimensionRecord)),   
 
 		//Request headers.
         headers = [             
@@ -613,7 +739,7 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
 	GetServingResultsTable's parameters are passed as-is to the corresponding parameters of the GetServingResultsPage function, where they are inserted
 	into the body of the API request to /serving/result.
 */
-GetServingResultsTable = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, aggregation as text) as nullable table =>
+GetServingResultsTable = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text) as nullable table =>
 	let
 		/*
 			Nested Function: getNextPage(lastPage as table) as nullable table
@@ -628,9 +754,9 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
             let
                 nextPage = if (prevPage = null)
                     then
-                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, aggregation, 1)    
+                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, 1)    
                     else
-                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
+                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
             in
                 nextPage,
 
@@ -640,20 +766,26 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 		*/
 		transformColumns = (inputTable as table) as table =>
 			let
-				withStartTimeAsDate = Table.TransformColumns(inputTable, {"startTime", TimestampToDate}),
-				withEndTimeAsDate = Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}),
+				withStartTimeAsDate = if (dimension = "campaign") then Table.TransformColumns(inputTable, {"startTime", TimestampToDate}) else inputTable,
+				withEndTimeAsDate = if (dimension = "campaign") then Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}) else withStartTimeAsDate,
 				withDateAsDate = Table.TransformColumns(withEndTimeAsDate, {"date", (value) => if (value <> null) then Date.FromText(value) else null})
 			in 
 				withDateAsDate,
 
+		schemas = [
+			campaigntotal = SCHEMA_CAMPAIGN_AGGREGATED,
+			campaigndaily = SCHEMA_CAMPAIGN_DAILY,
+			creativetotal = SCHEMA_CREATIVE_AGGREGATED,
+			creativedaily = SCHEMA_CREATIVE_DAILY,
+			campaigncreativetotal = SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED,
+			campaigncreativedaily = SCHEMA_CAMPAIGN_CREATIVE_DAILY
+		],
+		schemaIndex = dimension & (if (secondDimension <> null) then secondDimension else "") & aggregation,
+
 		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
         resultTable = Table.GenerateByPage(getNextPage),
 		resultTableValuesConverted = transformColumns(resultTable),
-        resultTableSchemaEnforced = if (aggregation = "total")
-			then 
-				SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE_AGGREGATED, EnforceSchema.Strict)
-			else
-				SchemaTransformTable(resultTableValuesConverted, SCHEMA_TABLE_DAILY, EnforceSchema.Strict),
+        resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, Record.Field(schemas, schemaIndex), EnforceSchema.Strict),
 		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name))
 	in
 		resultTableWithColumnsNamed;
@@ -700,20 +832,33 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
         endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
 
 		//Get the API /serving/results data as M tables.
-		servingResultsAggregated = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "total"),
-		servingResultsDaily = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "daily"),
+		aggregatedCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "total"),
+		dailyCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "daily"),
+		aggregatedCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "total"),
+		dailyCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "daily"),
+		aggregatedCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "total"),
+		dailyCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "daily"),
 
 		//Insert the tables into a navigation table and return the navigation table.
 		navTableFxnParam = #table(
 			{"Name", "Key", "Data", "ItemKind", "ItemName", "IsLeaf"}, {
-			{"Aggregated Ad Serving Report", "AdServingReportAggregated", servingResultsAggregated, "Table", "Table", true},
-			{"Daily Ad Serving Report", "AdServingReportDaily", servingResultsDaily, "Table", "Table", true}
+			{"Aggregated Ad Serving Report by Campaign", "AggregatedCampaign", aggregatedCampaign, "Table", "Table", true},
+			{"Daily Ad Serving Report by Campaign", "DailyCampaign", dailyCampaign, "Table", "Table", true},
+			{"Aggregated Ad Serving Report by Creative", "AggregatedCreative", aggregatedCreative, "Table", "Table", true},
+			{"Daily Ad Serving Report by Creative", "DailyCreative", dailyCreative, "Table", "Table", true},
+			{"Aggregated Ad Serving Report by Campaign and Creative", "AggregatedCampaignCreative", aggregatedCampaignByCreative, "Table", "Table", true},
+			{"Daily Ad Serving Report by Campaign and Creative", "DailyCampaignCreative", dailyCampaignByCreative, "Table", "Table", true}
 		}),
 		navTable = Table.ToNavigationTable(navTableFxnParam, {"Key"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
 	in
         navTable;
 
 
+
+
+/*
+	Part 3: Connector definition
+*/
 
 //Define the type for the IQM_Reports.Contents function, including the "documentation"/helptext that will be shown to the user
 ContentsFunctionType = type function (
@@ -759,8 +904,8 @@ IQM_Reports = [
     Authentication = [
         OAuth = [
             StartLogin = StartLogin,
-            FinishLogin = FinishLogin,
-            Refresh = Refresh
+            FinishLogin = FinishLogin
+            //Refresh = Refresh
         ]
     ],
     Label = Extension.LoadString("DataSourceLabel")
@@ -783,6 +928,11 @@ IQM_Reports.Icons = [
 ];
 
 
+
+
+/*
+	Part 4: Authentication with OAuth2
+*/
 
 /*
     StartLogin is the function used to initiate the OAuth 2 login flow: it must return a record of the form:
@@ -905,6 +1055,10 @@ GetToken = (code, grantType, requestUrl) =>
 
 
 
+
+/*
+	Part 5: Miscellaneous Helper Functions
+*/
 /*
 	TimestampToDate converts a Unix timestamp (seconds) to a value of type "date".
 	The date value is the local date with respect to the user's system.
