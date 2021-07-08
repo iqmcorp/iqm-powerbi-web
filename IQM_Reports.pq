@@ -462,6 +462,13 @@ TIMEZONE_TABLE = #table( {"value", "label"}, {
 });
 
 
+//A table of dimensions to group ad-serving data by. "label" and "value" should be the same as those passed to the /serving/result API endpoint.
+DIMENSION = #table( {"value", "label"}, {
+	{"campaign", "Campaigns"},
+	{"creative", "Creatives"}
+});
+
+
 
 //The SCHEMA_TABLE_AGGREGATED table is used as a "schema" for the table that the API results (from /serving/result, with request_type = "total") will be placed in. 
 //It defines the order of columns and the M data type of each column. 
@@ -501,9 +508,9 @@ SCHEMA_CAMPAIGN_DAILY = #table( {"Name", "Type", "Position", "Description"}, Lis
 
 //Used as the schema for the /serving/results result table grouped by the creative dimension and aggregated
 SCHEMA_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
-	{"audioVideoViewed", type number, 0},
-	{"creativeId", type number, 1},
-	{"creativeName", type text, 2},
+	{"creativeId", type number, 0},
+	{"creativeName", type text, 1},
+	{"audioVideoViewed", type number, 2},
 	{"impressions", type number, 3},
 	{"clicks", type number, 4},
 	{"mediaSpent", type number, 5},
@@ -526,9 +533,9 @@ SCHEMA_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
 //Used as the schema for the /serving/results result table grouped by the creative dimension
 SCHEMA_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
 	{"date", type nullable date, 0},
-	{"audioVideoViewed", type number, 1},
-	{"creativeId", type number, 2},
-	{"creativeName", type text, 3},
+	{"creativeId", type number, 1},
+	{"creativeName", type text, 2},
+	{"audioVideoViewed", type number, 3},
 	{"impressions", type number, 4},
 	{"clicks", type number, 5},
 	{"mediaSpent", type number, 6},
@@ -548,6 +555,7 @@ SCHEMA_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
 });
 
 
+//Schema for /serving/results result table containing aggregated data grouped by campaigns by creatives and aggregated
 SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
 	{"campaignId", type text, 0},
 	{"creativeId", type number, 1},
@@ -577,6 +585,7 @@ SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
 });
 
 
+//Schema for /serving/results result table containing data grouped by campaigns by creatives, daily
 SCHEMA_CAMPAIGN_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
 	{"date", type nullable date, 0},
 	{"campaignId", type text, 1},
@@ -661,6 +670,8 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 		timezoneString: The string representing the same timezone as the timezoneId; example: "Europe/London"
 		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
 		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
+		dimension: A string corresponding to the dimension.filter.label body parameter (i.e. "Campaigns", "Creatives", etc)
+		secondDimension: A string corresponding to the secondDimension.filter.label body parameter (i.e. "Creatives", etc)
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
 		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
@@ -684,8 +695,8 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
             ],
             dimension = [
                 filter = [
-                    value = dimension,
-                    label = if (dimension = "campaign") then "Campaigns" else "Creatives"
+                    value = Record.Field(Table.ToRecords(Table.SelectRows(DIMENSION, each [label] = dimension)){0}, "value"),
+                    label = dimension 
                 ]
             ],
             search_field = "",
@@ -700,11 +711,10 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
 
 		secondDimensionRecord = [
 			filter = [
-				value = secondDimension,
-				label = if (secondDimension = "creative") then "Campaigns" else "Creatives"
+				value = if (secondDimension <> null) then Record.Field(Table.ToRecords(Table.SelectRows(DIMENSION, each [label] = secondDimension)){0}, "value") else null,
+				label = secondDimension 
 			]
 		],
-		
 
         body = Json.FromValue(if (secondDimension = null) then bodyRecord else Record.AddField(bodyRecord, "secondDimension", secondDimensionRecord)),   
 
@@ -766,21 +776,25 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 		*/
 		transformColumns = (inputTable as table) as table =>
 			let
-				withStartTimeAsDate = if (dimension = "campaign") then Table.TransformColumns(inputTable, {"startTime", TimestampToDate}) else inputTable,
-				withEndTimeAsDate = if (dimension = "campaign") then Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}) else withStartTimeAsDate,
-				withDateAsDate = Table.TransformColumns(withEndTimeAsDate, {"date", (value) => if (value <> null) then Date.FromText(value) else null})
+				withStartTimeAsDate = if (dimension = "Campaigns") then Table.TransformColumns(inputTable, {"startTime", TimestampToDate}) else inputTable,
+				withEndTimeAsDate = if (dimension = "Campaigns") then Table.TransformColumns(withStartTimeAsDate, {"endTime", TimestampToDate}) else withStartTimeAsDate,
+				withDateAsDate = Table.TransformColumns(withEndTimeAsDate, {"date", (value) => if (value <> null) then Date.FromText(value) else null}),
+				withCtrAsPercentage = Table.TransformColumns(withDateAsDate, {"CTR", (value) => if (value <> null) then value/100 else null}),
+				withVcrAsPercentage = Table.TransformColumns(withCtrAsPercentage, {"VCR", (value) => if (value <> null) then value/100 else null}),
+				withWinRateAsPercentage = Table.TransformColumns(withVcrAsPercentage, {"winRate", (value) => if (value <> null) then value/100 else null})
 			in 
-				withDateAsDate,
-
+				withWinRateAsPercentage,
+		
+		//One entry in this record for each aggregation+group_by+second_group_by combination
 		schemas = [
-			campaigntotal = SCHEMA_CAMPAIGN_AGGREGATED,
-			campaigndaily = SCHEMA_CAMPAIGN_DAILY,
-			creativetotal = SCHEMA_CREATIVE_AGGREGATED,
-			creativedaily = SCHEMA_CREATIVE_DAILY,
-			campaigncreativetotal = SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED,
-			campaigncreativedaily = SCHEMA_CAMPAIGN_CREATIVE_DAILY
+			totalCampaigns = SCHEMA_CAMPAIGN_AGGREGATED,
+			dailyCampaigns = SCHEMA_CAMPAIGN_DAILY,
+			totalCreatives = SCHEMA_CREATIVE_AGGREGATED,
+			dailyCreatives = SCHEMA_CREATIVE_DAILY,
+			totalCampaignsCreatives = SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED,
+			dailyCampaignsCreatives = SCHEMA_CAMPAIGN_CREATIVE_DAILY
 		],
-		schemaIndex = dimension & (if (secondDimension <> null) then secondDimension else "") & aggregation,
+		schemaIndex = aggregation & dimension & (if (secondDimension <> null) then secondDimension else ""),
 
 		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
         resultTable = Table.GenerateByPage(getNextPage),
@@ -808,50 +822,68 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 		timezoneLabel: A timezone label string (as from TIMEZONE_TABLE or the IQM API)
 		startDate: The start of the time interval to gather ad-serving report data for.
 		endDate: The end of the time interval to gather ad-serving report data for.
+		dimension: The 'group by' dimension to group ad-serving data by. Should be a value that can be passed as a dimension.filter.label body parameter to the /serving/result API endpoint
+		secondDimension: The second 'group by' dimension to group ad-serving data by. Should be a value that can be passed as a secondDimension.filter.label body parameter to the /serving/result API endpoint
 */
-ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone) as nullable table =>
+ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone, dimension as text, optional secondDimension as text) as nullable table =>
     let
-		//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
-		
-		//Convert timezoneLabel (text) into a numerical timezone ID that can be passed to the IQM API:
-		//First, get the row in TIMEZONE_TABLE with the specified timezoneLabel
-		timezoneIdTest = Table.SelectRows(TIMEZONE_TABLE, each [label] = timezoneLabel),	//timezoneIdTest should be a single-row table
-		numRows = Table.RowCount(timezoneIdTest),	
-
-		//Test to make sure the specified timezone label was found in the TIMEZONE_TABLE; if not, default to id=11 (UTC)
-		timezoneId = if (numRows < 1)
+		output = if (dimension = secondDimension)	//Check to make sure the user didn't put the same dimension for both 'dimension' and 'secondDimension'
 			then
-				11
+				error Error.Record("Invalid Input", "Input Validation Failed: 'Group By' value must be distinct from 'Second Group By' value.")
 			else
-				Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
+				let
+					//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
+		
+					//Convert timezoneLabel (text) into a numerical timezone ID that can be passed to the IQM API:
+					//First, get the row in TIMEZONE_TABLE with the specified timezoneLabel
+					timezoneIdTest = Table.SelectRows(TIMEZONE_TABLE, each [label] = timezoneLabel),	//timezoneIdTest should be a single-row table
+					numRows = Table.RowCount(timezoneIdTest),	
 
-		//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
-        startDateDuration = startDate - UNIX_EPOCH,			
-        endDateDuration = endDate - UNIX_EPOCH,
-        startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
-        endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
+					//Test to make sure the specified timezone label was found in the TIMEZONE_TABLE; if not, default to id=11 (UTC)
+					timezoneId = if (numRows < 1)
+						then
+							11
+						else
+							Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
 
-		//Get the API /serving/results data as M tables.
-		aggregatedCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "total"),
-		dailyCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "daily"),
-		aggregatedCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "total"),
-		dailyCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "daily"),
-		aggregatedCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "total"),
-		dailyCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "daily"),
+					//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
+					startDateDuration = startDate - UNIX_EPOCH,			
+					endDateDuration = endDate - UNIX_EPOCH,
+					startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
+					endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
 
-		//Insert the tables into a navigation table and return the navigation table.
-		navTableFxnParam = #table(
-			{"Name", "Key", "Data", "ItemKind", "ItemName", "IsLeaf"}, {
-			{"Aggregated Ad Serving Report by Campaign", "AggregatedCampaign", aggregatedCampaign, "Table", "Table", true},
-			{"Daily Ad Serving Report by Campaign", "DailyCampaign", dailyCampaign, "Table", "Table", true},
-			{"Aggregated Ad Serving Report by Creative", "AggregatedCreative", aggregatedCreative, "Table", "Table", true},
-			{"Daily Ad Serving Report by Creative", "DailyCreative", dailyCreative, "Table", "Table", true},
-			{"Aggregated Ad Serving Report by Campaign and Creative", "AggregatedCampaignCreative", aggregatedCampaignByCreative, "Table", "Table", true},
-			{"Daily Ad Serving Report by Campaign and Creative", "DailyCampaignCreative", dailyCampaignByCreative, "Table", "Table", true}
-		}),
-		navTable = Table.ToNavigationTable(navTableFxnParam, {"Key"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
+					//Get the API /serving/results data as M tables.
+					adServingReportAggregated = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, dimension, secondDimension, "total"),
+					adServingReportDaily = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, dimension, secondDimension, "daily"),
+					/*
+					aggregatedCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "total"),
+					dailyCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "daily"),
+					aggregatedCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "total"),
+					dailyCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "creative", null, "daily"),
+					aggregatedCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "total"),
+					dailyCampaignByCreative = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", "creative", "daily"),
+					*/
+
+
+					//Insert the tables into a navigation table and return the navigation table.
+					navTableFxnParam = #table(
+						{"Name", "Key", "Data", "ItemKind", "ItemName", "IsLeaf"}, {
+						{dimension & (if (secondDimension <> null) then " by " & secondDimension else "") & " Aggregated", "AdServingReportAggregated", adServingReportAggregated, "Table", "Table", true},
+						{dimension & (if (secondDimension <> null) then " by " & secondDimension else "") & " Daily", "AdServingReportDaily", adServingReportDaily, "Table", "Table", true}
+						/*
+						{"Aggregated Ad Serving Report by Campaign", "AggregatedCampaign", aggregatedCampaign, "Table", "Table", true},
+						{"Daily Ad Serving Report by Campaign", "DailyCampaign", dailyCampaign, "Table", "Table", true},
+						{"Aggregated Ad Serving Report by Creative", "AggregatedCreative", aggregatedCreative, "Table", "Table", true},
+						{"Daily Ad Serving Report by Creative", "DailyCreative", dailyCreative, "Table", "Table", true},
+						{"Aggregated Ad Serving Report by Campaign and Creative", "AggregatedCampaignCreative", aggregatedCampaignByCreative, "Table", "Table", true},
+						{"Daily Ad Serving Report by Campaign and Creative", "DailyCampaignCreative", dailyCampaignByCreative, "Table", "Table", true}
+						*/
+					}),
+					navTable = Table.ToNavigationTable(navTableFxnParam, {"Key"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
+				in
+					navTable
 	in
-        navTable;
+		output;
 
 
 
@@ -877,6 +909,20 @@ ContentsFunctionType = type function (
 	endDate as (type datetimezone meta [
 		Documentation.FieldCaption = "Date Interval End",
 		Documentation.FieldDescription = "End of the timeframe for the ad-serving data to include in the report.",
+		Formatting.IsMultiLine = false,
+		Formatting.IsCode = false
+	]),
+	dimension as (type text meta [
+		Documentation.FieldCaption = "Group By",
+		Documentation.FieldDescription = "Select the dimension of advertising data to group by.",
+		Documentation.AllowedValues = Table.Column(DIMENSION, "label"),
+		Formatting.IsMultiLine = false,
+		Formatting.IsCode = false
+	]),
+	optional secondDimension as (type text meta [
+		Documentation.FieldCaption = "Second Group By",
+		Documentation.FieldDescription = "Select an optional second dimension of advertising data to group by. Must select a different value from the Group By dropdown.",
+		Documentation.AllowedValues = {"Creatives"},
 		Formatting.IsMultiLine = false,
 		Formatting.IsCode = false
 	]))

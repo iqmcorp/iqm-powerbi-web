@@ -32,3 +32,9 @@ To retrieve data through the IQM Reports connector for use in Power BI Desktop, 
 5. In the Navigator window, select the tables of data to import from the IQM Reports connector by checking the checkboxes next to each table you want to import. Then, click Load.
 ![Import tables of data from IQM Reports connector.](documentation_images/Navigator_LoadData_Full.png)
 6. Power BI Desktop will retrieve ad-serving reporting data according to your inputs and convert them to tables that you can use to build reports!
+
+## Using the Report Template
+
+The report_template directory of the repository contains a Power BI report template file IQM_Report_Template.pbit. This file contains a template for a report that uses the IQM Reports connector, showing an example of how the connector might be used.
+
+To use this template, download and save it, then open Power BI Desktop and select **File > Import > Power BI template**.
