@@ -969,8 +969,8 @@ IQM_Reports.Publish = [
 
 //Icons for the connector are defined here.
 IQM_Reports.Icons = [
-    Icon16 = { Extension.Contents("IQM_Reports_16.png"), Extension.Contents("IQM_Reports_20.png"), Extension.Contents("IQM_Reports_24.png"), Extension.Contents("IQM_Reports_32.png") },
-    Icon32 = { Extension.Contents("IQM_Reports_32.png"), Extension.Contents("IQM_Reports_40.png"), Extension.Contents("IQM_Reports_48.png"), Extension.Contents("IQM_Reports_64.png") }
+    Icon16 = { Extension.Contents("icons/IQM_Reports_16.png"), Extension.Contents("icons/IQM_Reports_20.png"), Extension.Contents("icons/IQM_Reports_24.png"), Extension.Contents("icons/IQM_Reports_32.png") },
+    Icon32 = { Extension.Contents("icons/IQM_Reports_32.png"), Extension.Contents("icons/IQM_Reports_40.png"), Extension.Contents("icons/IQM_Reports_48.png"), Extension.Contents("icons/IQM_Reports_64.png") }
 ];
 
 

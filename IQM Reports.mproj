@@ -47,33 +47,36 @@
     <Content Include="IQM_Reports.query.pq">
       <SubType>Code</SubType>
     </Content>
-    <Content Include="IQM_Reports_120.png">
+    <Content Include="icons\IQM_Reports_120.png">
       <SubType>Content</SubType>
     </Content>
-    <Compile Include="IQM_Reports_16.png">
+    <Content Include="icons\IQM_Reports_16.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_20.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_20.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_24.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_24.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_32.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_32.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_40.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_40.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_48.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_48.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_64.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_64.png">
       <SubType>Content</SubType>
-    </Compile>
-    <Compile Include="IQM_Reports_80.png">
+    </Content>
+    <Content Include="icons\IQM_Reports_80.png">
       <SubType>Content</SubType>
-    </Compile>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="icons" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <UsingTask TaskName="BuildExtension" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
