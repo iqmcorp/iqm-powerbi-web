@@ -8,12 +8,13 @@ section IQM_Reports;
 	OAuth constants, TIMEZONE_TABLE, schema tables, map of API column names to user-friendly column names.
 */
 //OAuth2 constants
-CLIENT_ID = "ZYDPLLBWSK3MVQJSIYHB1OR2JXCY0X2C5UJ2QAR2MAAIT5Q";
-CLIENT_SECRET = "fNZiRPyz0PfWSqfLrRkdw1Ou";
-AUTHORIZE_URI = "https://app.iqm.com/oauth/authorize";
+CLIENT_ID = "oauth.powerbi.com"; //"ZYDPLLBWSK3MVQJSIYHB1OR2JXCY0X2C5UJ2QAR2MAAIT5Q";
+CLIENT_SECRET = "Iphaechu7uap6pooy0Fet"; //"fNZiRPyz0PfWSqfLrRkdw1Ou";
+AUTHORIZE_URI = "https://app.iqm.vote/oauth/authorize";
 REDIRECT_URI = "https://oauth.powerbi.com/views/oauthredirect.html";
-TOKEN_URI = "https://app.iqm.com/oauth/token";
-REFRESH_URI = "https://app.iqm.com/oauth/token";
+TOKEN_URI = "https://app.iqm.vote/api/v3/ua/oauth/token";
+REFRESH_URI = "https://app.iqm.vote/oauth/token";
+VALIDATE_URI = "https://app.iqm.vote/api/v3/ua/user/email/validate";
 WINDOW_HEIGHT = 600;
 WINDOW_WIDTH = 800;
 
@@ -675,14 +676,16 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
 		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
-getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text, pageNum as number)  as nullable table =>
+getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text, pageNum as number)  as any =>
     let
-        requestUrl = "https://app.iqm.com/api/v2/rb/serving/result",
+        requestUrl = "https://app.iqm.vote/api/v2/rb/serving/result",
 
 		//This record represents the request body.
 		bodyRecord = [								
             total_agg = false,
+			pgno = pageNum,
             page_number = pageNum,
+			number_of_entries = PAGE_SIZE,
             total_count = PAGE_SIZE,
             request_type = aggregation,
             dateRange = [
@@ -706,7 +709,8 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
             ],
             sort_by = if (aggregation = "daily") then "date" else "impressions",
             sort_type = "desc",
-            status = "running"
+            status = "running",
+			user_session_id = Extension.CurrentCredential()[access_token]
         ], //body record
 
 		secondDimensionRecord = [
@@ -728,16 +732,15 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
 		//Send HTTP request to API endpoint
 		//apiResponse is a record/object containing the "total" object and "data" list of objects (see IQM API)
         apiResponse = Json.Document(Web.Contents(requestUrl, [Headers = headers, Content = body])),         
-		
+
         responseTable = if (List.Count(apiResponse[data]) = 0)  
-			//If the "data" list is empty, we've reached the end of the paginated data. So, return null.
             then
-                null 
+                null
 			//If "data" list is not empty, create a table from the objects within the list and return that table.
 			//Include metadata: "pageNum" tells which page number this current page/table of results corresponds to. 
 			//pageNum is equal to the page_number in the request body and is used in ContentsFunction (in the nested function getNextPage) to calculate the next page's number.
             else 
-				Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum] 
+				Table.FromRecords(apiResponse[data]) meta [pageNum = pageNum]
     in
         responseTable;
 
@@ -760,13 +763,13 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 							If no more data can be fetched from the API, getNextPage returns null.
 			getNextPage is passed as a parameter to the helper function Table.GenerateByPage, which repeatedly calls getNextPage() and collates all the pages/tables returned from getNextPage() into a single M table.
 		*/     
-        getNextPage = (prevPage as nullable table) as nullable table =>
+        getNextPage = (prevPage as any) as nullable table =>		//type of prevPage is nullable table OR number.
             let
                 nextPage = if (prevPage = null)
                     then
                         getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, 1)    
                     else
-                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
+						getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
             in
                 nextPage,
 
@@ -797,10 +800,31 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 		schemaIndex = aggregation & dimension & (if (secondDimension <> null) then secondDimension else ""),
 
 		//Get full table of API results, transform values in table to those usable by Power BI as needed, change column names to reflect IQM Reports interface, and enforce the schema defined in SCHEMA_TABLE
-        resultTable = Table.GenerateByPage(getNextPage),
-		resultTableValuesConverted = transformColumns(resultTable),
-        resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, Record.Field(schemas, schemaIndex), EnforceSchema.Strict),
-		resultTableWithColumnsNamed = Table.TransformColumnNames(resultTableSchemaEnforced, (name) => Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name))
+        
+		//Get full table of API results (repeatedly call API until no paginated data left)
+		resultTable = Table.GenerateByPage(getNextPage),
+
+		//Format table with converted values and enforce schema, rename columns, etc.
+		resultTableWithColumnsNamed = if (Table.IsEmpty(resultTable))
+			then
+				let
+					resultTableSchemaEnforced = SchemaTransformTable(resultTable, Record.Field(schemas, schemaIndex), EnforceSchema.Strict),
+					resultTableWithColumnsNamed = Table.TransformColumnNames(
+						resultTableSchemaEnforced, 
+						(name) => if (Record.HasFields(COLUMN_NAMES_MAP_API_TO_UI, name)) then Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name) else null
+					)
+				in
+					resultTableWithColumnsNamed
+			else
+				let
+					resultTableValuesConverted = transformColumns(resultTable),
+					resultTableSchemaEnforced = SchemaTransformTable(resultTableValuesConverted, Record.Field(schemas, schemaIndex), EnforceSchema.Strict),
+					resultTableWithColumnsNamed = Table.TransformColumnNames(
+						resultTableSchemaEnforced, 
+						(name) => if (Record.HasFields(COLUMN_NAMES_MAP_API_TO_UI, name)) then Record.Field(COLUMN_NAMES_MAP_API_TO_UI, name) else null
+					)
+				in
+					resultTableWithColumnsNamed
 	in
 		resultTableWithColumnsNamed;
 		
@@ -1001,7 +1025,7 @@ StartLogin = (resourceUrl, state, display) =>
             client_id = CLIENT_ID,
             client_secret = CLIENT_SECRET,
             response_type = "code",
-            scope = "read_user_info",
+            scope = "write",
             redirect_uri = REDIRECT_URI
         ],
         authorizationCodeUrl = AUTHORIZE_URI & "?" & Uri.BuildQueryString(queryParameters)
@@ -1052,7 +1076,7 @@ Refresh = (resourceUrl, refresh_token) =>
 
 /*
 	GetToken is a helper function that exchanges a code (authorization code or refresh token) for an access token by calling the appropriate
-	IQM API endpoint. This function returns an M record containing, at the least, an access_token and refresh_token.
+	IQM API endpoint. This function returns an M record containing, at the least, an access_token and refresh_token and owId.
 	If an access token and refresh token cannot be retrieved from the IQM API, an error is thrown
 
 	Parameters:
@@ -1068,7 +1092,7 @@ GetToken = (code, grantType, requestUrl) =>
                     code = code,
                     grant_type = grantType,
                     redirect_uri = REDIRECT_URI,
-                    scope = "read_user_info",
+                    scope = "write",
                     client_id = CLIENT_ID,
                     client_secret = CLIENT_SECRET
                 ]))
@@ -1077,7 +1101,7 @@ GetToken = (code, grantType, requestUrl) =>
                     refresh_token = code,
                     grant_type = grantType,
                     redirect_uri = REDIRECT_URI,
-                    scope = "read_user_info",
+                    scope = "write",
                     client_id = CLIENT_ID,
                     client_secret = CLIENT_SECRET
                 ])),
@@ -1090,6 +1114,7 @@ GetToken = (code, grantType, requestUrl) =>
             #"Authorization" = "Basic " & clientIdSecretBin64
         ],
         response = Web.Contents(requestUrl, [Headers = headers, Content = body]),
+
         responseBody = Json.Document(response),    //Convert JSON response to M record.
         result = if (Record.HasFields(responseBody, {"access_token", "refresh_token"}))
             then
