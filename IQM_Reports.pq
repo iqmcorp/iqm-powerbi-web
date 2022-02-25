@@ -477,8 +477,8 @@ DIMENSION = #table( {"value", "label"}, {
 SCHEMA_CAMPAIGN_AGGREGATED = #table({"Name", "Type", "Position", "Description"}, {
     {"campaignId", type text, 0, "Unique system-generated numerical ID assigned to each campaign"},
     {"campaignName", type text, 1, ""},
-    {"startTime", type nullable date, 2, "Campaign start date."},
-    {"endTime", type nullable date, 3, "Campaign end date."},
+    {"startTime", type nullable datetimezone, 2, "Campaign start date. (UTC)"},
+    {"endTime", type nullable datetimezone, 3, "Campaign end date. (UTC)"},
     {"maxBid", type number, 4, "Amount up to which you allow IQM to bid."},
     {"budgetDay", type number, 5, "Amount up to which you allow IQM to spend on average each day."},
     {"budgetTotal", type number, 6, "Amount up to which you allow IQM to spend."},
@@ -562,8 +562,8 @@ SCHEMA_CAMPAIGN_CREATIVE_AGGREGATED = #table({"Name", "Type", "Position"}, {
 	{"creativeId", type number, 1},
 	{"campaignName", type text, 2},
 	{"creativeName", type text, 3},
-	{"startTime", type nullable date, 4},
-    {"endTime", type nullable date, 5},
+	{"startTime", type nullable datetimezone, 4},
+    {"endTime", type nullable datetimezone, 5},
     {"maxBid", type number, 6},
     {"budgetDay", type number, 7},
     {"budgetTotal", type number, 8},
@@ -593,8 +593,8 @@ SCHEMA_CAMPAIGN_CREATIVE_DAILY = #table({"Name", "Type", "Position"}, {
 	{"creativeId", type number, 2},
 	{"campaignName", type text, 3},
 	{"creativeName", type text, 4},
-	{"startTime", type nullable date, 5},
-    {"endTime", type nullable date, 6},
+	{"startTime", type nullable datetimezone, 5},
+    {"endTime", type nullable datetimezone, 6},
     {"maxBid", type number, 7},
     {"budgetDay", type number, 8},
     {"budgetTotal", type number, 9},
@@ -631,9 +631,9 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	creativeName = "Creative Name",
 	campaignId = "Campaign ID",
 	campaignName = "Campaign Name",
-	date = "Date",
-	startTime = "Start Date",
-	endTime = "End Date",
+	date = "Date (UTC)",
+	startTime = "Start Date (UTC)",
+	endTime = "End Date (UTC)",
 	campaignTimezone = "Campaign Timezone",
 	maxBid = "Max Bid ($)",
 	budgetDay = "Daily Budget ($)",
@@ -667,8 +667,6 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 	getServingResultsPage retrieves a single page of data from the /serving/result IQM API endpoint and returns the data as an M table.
 	If there is no more data to be retrieved then the function returns null.
 	Parameters:
-		timezoneId: The ID of a timezone (as from the IQM timezone API, or in the TIMEZONE_TABLE)
-		timezoneString: The string representing the same timezone as the timezoneId; example: "Europe/London"
 		startDateTimestamp: A Unix timestamp in milliseconds representing the start of the time interval to retrieve report data for.
 		endDateTimestamp: A Unix timestamp in milliseconds representing the end of the time interval to retrieve report data for.
 		dimension: A string corresponding to the dimension.filter.label body parameter (i.e. "Campaigns", "Creatives", etc)
@@ -676,7 +674,7 @@ COLUMN_NAMES_MAP_API_TO_UI = [
 		pageNum: The page of results to retrieve. Page size is determined by the global PAGE_SIZE constant.
 		aggregation: Must be "daily" or "total". Tells the API how to aggregate the data; is passed to the API as the request_type body parameter
 */
-getServingResultsPage = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text, pageNum as number)  as any =>
+getServingResultsPage = (startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text, pageNum as number)  as any =>
     let
         requestUrl = "https://app.iqm.vote/api/v2/rb/serving/result",
 
@@ -693,8 +691,8 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
                 endDate = endDateTimestamp
             ],
             timezone = [
-				value = timezoneString,
-				id = timezoneId
+				value = "UTC",
+				id = 11
             ],
             dimension = [
                 filter = [
@@ -752,7 +750,7 @@ getServingResultsPage = (timezoneId as number, timezoneString as text, startDate
 	GetServingResultsTable's parameters are passed as-is to the corresponding parameters of the GetServingResultsPage function, where they are inserted
 	into the body of the API request to /serving/result.
 */
-GetServingResultsTable = (timezoneId as number, timezoneString as text, startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text) as nullable table =>
+GetServingResultsTable = (startDateTimestamp as number, endDateTimestamp as number, dimension as text, secondDimension as nullable text, aggregation as text) as nullable table =>
 	let
 		/*
 			Nested Function: getNextPage(lastPage as table) as nullable table
@@ -767,9 +765,9 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
             let
                 nextPage = if (prevPage = null)
                     then
-                        getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, 1)    
+                        getServingResultsPage(startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, 1)    
                     else
-						getServingResultsPage(timezoneId, timezoneString, startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
+						getServingResultsPage(startDateTimestamp, endDateTimestamp, dimension, secondDimension, aggregation, Value.Metadata(prevPage)[pageNum] + 1)     
             in
                 nextPage,
 
@@ -843,42 +841,29 @@ GetServingResultsTable = (timezoneId as number, timezoneString as text, startDat
 
 	Parameters are values input by the user when the user selects the IQM Reports custom connector in Power BI desktop.
 	Parameters:
-		timezoneLabel: A timezone label string (as from TIMEZONE_TABLE or the IQM API)
 		startDate: The start of the time interval to gather ad-serving report data for.
 		endDate: The end of the time interval to gather ad-serving report data for.
 		dimension: The 'group by' dimension to group ad-serving data by. Should be a value that can be passed as a dimension.filter.label body parameter to the /serving/result API endpoint
 		secondDimension: The second 'group by' dimension to group ad-serving data by. Should be a value that can be passed as a secondDimension.filter.label body parameter to the /serving/result API endpoint
 */
-ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as datetimezone, dimension as text, optional secondDimension as text) as nullable table =>
+ContentsFunction = (startDate as datetime, endDate as datetime, dimension as text, optional secondDimension as text) as nullable table =>
     let
 		output = if (dimension = secondDimension)	//Check to make sure the user didn't put the same dimension for both 'dimension' and 'secondDimension'
 			then
 				error Error.Record("Invalid Input", "Input Validation Failed: 'Group By' value must be distinct from 'Second Group By' value.")
 			else
 				let
-					//Transform user inputs--timezoneLabel, startDate, endDate--into formats/values usable by the API
-		
-					//Convert timezoneLabel (text) into a numerical timezone ID that can be passed to the IQM API:
-					//First, get the row in TIMEZONE_TABLE with the specified timezoneLabel
-					timezoneIdTest = Table.SelectRows(TIMEZONE_TABLE, each [label] = timezoneLabel),	//timezoneIdTest should be a single-row table
-					numRows = Table.RowCount(timezoneIdTest),	
-
-					//Test to make sure the specified timezone label was found in the TIMEZONE_TABLE; if not, default to id=11 (UTC)
-					timezoneId = if (numRows < 1)
-						then
-							11
-						else
-							Number.FromText(Table.Column(timezoneIdTest, "value"){0}),
-
-					//Convert startDate and endDate from datetimezones to Unix timestamps (milliseconds)
-					startDateDuration = startDate - UNIX_EPOCH,			
-					endDateDuration = endDate - UNIX_EPOCH,
-					startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,   
+					//Transform user inputs--startDate, endDate--into formats/values usable by the API
+					
+					//Convert startDate and endDate from datetimes to Unix timestamps (milliseconds)
+					startDateDuration = DateTime.AddZone(startDate, 0, 0) - UNIX_EPOCH,			
+					endDateDuration = DateTime.AddZone(endDate, 0, 0) - UNIX_EPOCH,
+					startDateTimestamp = Duration.TotalSeconds(startDateDuration) * 1000,
 					endDateTimestamp = Duration.TotalSeconds(endDateDuration) * 1000,
 
 					//Get the API /serving/results data as M tables.
-					adServingReportAggregated = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, dimension, secondDimension, "total"),
-					adServingReportDaily = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, dimension, secondDimension, "daily"),
+					adServingReportAggregated = GetServingResultsTable(startDateTimestamp, endDateTimestamp, dimension, secondDimension, "total"),
+					adServingReportDaily = GetServingResultsTable(startDateTimestamp, endDateTimestamp, dimension, secondDimension, "daily"),
 					/*
 					aggregatedCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "total"),
 					dailyCampaign = GetServingResultsTable(timezoneId, timezoneLabel, startDateTimestamp, endDateTimestamp, "campaign", null, "daily"),
@@ -918,21 +903,23 @@ ContentsFunction = (timezoneLabel as text, startDate as datetimezone, endDate as
 
 //Define the type for the IQM_Reports.Contents function, including the "documentation"/helptext that will be shown to the user
 ContentsFunctionType = type function (
+	/*
 	timezoneLabel as (type text meta [
 		Documentation.FieldCaption = "Timezone",
 		Documentation.AllowedValues = Table.Column(TIMEZONE_TABLE, "label"),
 		Formatting.IsMultiLine = false,
 		Formatting.IsCode = false
 	]),
-	startDate as (type datetimezone meta [
-		Documentation.FieldCaption = "Date Interval Start",
-		Documentation.FieldDescription = "Start of the timeframe for the ad-serving data to include in the report.",
+	*/
+	startDate as (type datetime meta [
+		Documentation.FieldCaption = "Date Interval Start (UTC)",
+		Documentation.FieldDescription = "Start of the timeframe for the ad-serving data to include in the report. All dates are in UTC.",
 		Formatting.IsMultiLine = false,
 		Formatting.IsCode = false
 	]),
-	endDate as (type datetimezone meta [
-		Documentation.FieldCaption = "Date Interval End",
-		Documentation.FieldDescription = "End of the timeframe for the ad-serving data to include in the report.",
+	endDate as (type datetime meta [
+		Documentation.FieldCaption = "Date Interval End (UTC)",
+		Documentation.FieldDescription = "End of the timeframe for the ad-serving data to include in the report. All dates are in UTC.",
 		Formatting.IsMultiLine = false,
 		Formatting.IsCode = false
 	]),
@@ -966,11 +953,10 @@ IQM_Reports = [
     TestConnection = (dataSourcePath) => 
 		let
 			json = Json.Document(dataSourcePath),
-			timezoneLabel = json[timezoneLabel],
 			startDate = json[startDate],
 			endDate = json[endDate]
 		in
-			{"IQM_Reports.Contents", timezoneLabel, startDate, endDate},
+			{"IQM_Reports.Contents", startDate, endDate},
     Authentication = [
         OAuth = [
             StartLogin = StartLogin,
@@ -1134,13 +1120,12 @@ GetToken = (code, grantType, requestUrl) =>
 	TimestampToDate converts a Unix timestamp (seconds) to a value of type "date".
 	The date value is the local date with respect to the user's system.
 */
-TimestampToDate = (timestamp as nullable number) as nullable date =>
+TimestampToDate = (timestamp as nullable number) as nullable datetimezone =>
 	let
 		asDuration = if (timestamp <> null) then #duration(0, 0, 0, timestamp) else null,
-		asDatetimezone = if (timestamp <> null) then UNIX_EPOCH + asDuration else null,
-		asDate = if (timestamp <> null) then Date.From(asDatetimezone) else null
+		asDatetimezone = if (timestamp <> null) then UNIX_EPOCH + asDuration else null
 	in
-		asDate;
+		asDatetimezone;
 
 
 
