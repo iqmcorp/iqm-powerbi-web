@@ -25,7 +25,7 @@ To retrieve data through the IQM Reports connector for use in Power BI Desktop, 
 2. In the **Get Data** dialog box, select the **Online Services** tab and click on the connector labeled **IQM Reports (beta)**. Click the **Connect** button at the bottom of the dialog.
 ![Get Data window with IQM Reports connector selected.](documentation_images/GetData_IQMReports_Connect.png)
 3. Input the required parameters into the IQM Reports dialog and click **OK**.
-![Required parameters: Timezone, Date Interval Start, Date Interval End.](documentation_images/RequiredParameters.png)
+![Required parameters: Date Interval Start, Date Interval End.](documentation_images/RequiredParameters.png)
 4. Sign in using your IQM account. Click **Connect**.
 ![Sign into your IQM account.](documentation_images/SignIn.png)
 ![Sign into your IQM account.](documentation_images/OAuthLoginUpdated.png)

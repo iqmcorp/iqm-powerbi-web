@@ -8,8 +8,8 @@ section IQM_Reports;
     OAuth constants, TIMEZONE_TABLE, schema tables, map of API column names to user-friendly column names.
 */
 //OAuth2 constants
-CLIENT_ID = "oauth.powerbi.com"; //"ZYDPLLBWSK3MVQJSIYHB1OR2JXCY0X2C5UJ2QAR2MAAIT5Q";
-CLIENT_SECRET = "Iphaechu7uap6pooy0Fet"; //"fNZiRPyz0PfWSqfLrRkdw1Ou";
+CLIENT_ID = "oauth.powerbi.com";
+CLIENT_SECRET = "Iphaechu7uap6pooy0Fet";
 AUTHORIZE_URI = "https://app.iqm.vote/oauth/authorize";
 REDIRECT_URI = "https://oauth.powerbi.com/views/oauthredirect.html";
 TOKEN_URI = "https://app.iqm.vote/api/v3/ua/oauth/token";
